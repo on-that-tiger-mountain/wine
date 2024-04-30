@@ -1261,6 +1261,7 @@ void manage_desktop( WCHAR *arg )
         }
         SetThreadDesktop( desktop );
     }
+    else ExitProcess( 0 );
 
     /* the desktop process should always have an admin token */
     status = NtSetInformationProcess( GetCurrentProcess(), ProcessWineGrantAdminToken, NULL, 0 );
