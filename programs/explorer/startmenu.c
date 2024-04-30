@@ -44,6 +44,7 @@ struct menu_item
     struct menu_item* base;
     HMENU menuhandle;
     BOOL menu_filled;
+    HBITMAP hbitmap;
 };
 
 static struct list items = LIST_INIT(items);
@@ -51,6 +52,9 @@ static struct list items = LIST_INIT(items);
 static struct menu_item root_menu;
 static struct menu_item public_startmenu;
 static struct menu_item user_startmenu;
+
+extern IShellLinkW *load_shelllink(const WCHAR *path);
+extern HICON extract_icon(IShellLinkW *link, BOOL large_icon);
 
 #define MENU_ID_RUN 1
 #define MENU_ID_EXIT 2
@@ -176,6 +180,67 @@ static BOOL shell_folder_is_empty(IShellFolder* folder)
     return TRUE;
 }
 
+static HBITMAP icon_to_bitmap(HICON hicon) 
+{
+    ICONINFO iconInfo;
+    BITMAP bitmapInfo;
+    HBITMAP hbitmap;
+    HBITMAP hOldBitmap;
+    HDC hdc = NULL;
+
+    GetIconInfo(hicon, &iconInfo);
+    GetObjectW(iconInfo.hbmColor, sizeof(BITMAP), &bitmapInfo);
+
+    hdc = CreateCompatibleDC(NULL);
+    hbitmap = CreateBitmap(bitmapInfo.bmWidth, bitmapInfo.bmHeight, 1, 32, NULL);
+    hOldBitmap = SelectObject(hdc, hbitmap);
+
+    RECT rect = {0, 0, bitmapInfo.bmWidth, bitmapInfo.bmHeight};
+    FillRect(hdc, &rect, (HBRUSH)(COLOR_MENU + 1));
+    DrawIconEx(hdc, 0, 0, hicon, bitmapInfo.bmWidth, bitmapInfo.bmHeight, 0, 0, DI_NORMAL); 
+
+    SelectObject(hdc, hOldBitmap);
+    DeleteDC(hdc);
+    DestroyIcon(hicon);
+    return hbitmap;
+}
+
+static int get_icon_index(WCHAR *name, BOOL folder) 
+{
+    int iconIndex;
+
+    if (!lstrcmpW(L"Control Panel", name)) 
+    {
+        iconIndex = 36;
+    }
+    else if (!lstrcmpW(L"Programs", name)) 
+    {
+        iconIndex = 513;
+    }
+    else if (!lstrcmpW(L"Internet Settings", name)) 
+    {
+        iconIndex = 14;
+    }
+    else if (!lstrcmpW(L"System Tools", name)) 
+    {
+        iconIndex = 37;
+    }
+    else if (!lstrcmpW(L"Game Controllers", name)) 
+    {
+        iconIndex = 514;
+    }
+    else if (!lstrcmpW(L"Add/Remove Programs", name)) 
+    {
+        iconIndex = 148;
+    }    
+    else 
+    {
+        iconIndex = folder ? 4 : 30;
+    }
+
+    return -iconIndex;
+}
+
 /* add an individual file or folder to the menu, takes ownership of pidl */
 static struct menu_item* add_shell_item(struct menu_item* parent, LPITEMIDLIST pidl)
 {
@@ -219,6 +284,7 @@ static struct menu_item* add_shell_item(struct menu_item* parent, LPITEMIDLIST p
 
     item->parent = parent;
     item->pidl = pidl;
+    item->hbitmap = NULL;
 
     existing_item_count = GetMenuItemCount(parent_menu);
     mii.cbSize = sizeof(mii);
@@ -262,10 +328,19 @@ static struct menu_item* add_shell_item(struct menu_item* parent, LPITEMIDLIST p
 
     if (!match)
     {
+        HICON hicon = NULL;
+        WCHAR wszPath[MAX_PATH];
+        LPITEMIDLIST abs_pidl;
+        IShellLinkW *link;
+        
         /* no existing item with the same name; just add it */
-        mii.fMask = MIIM_STRING|MIIM_DATA;
+        mii.fMask = MIIM_STRING|MIIM_DATA|MIIM_BITMAP;
         mii.dwTypeData = item->displayname;
         mii.dwItemData = (ULONG_PTR)item;
+        
+        abs_pidl = build_pidl(item);
+        SHGetPathFromIDListW(abs_pidl, wszPath);
+        CoTaskMemFree(abs_pidl);        
 
         if (item->folder)
         {
@@ -275,11 +350,25 @@ static struct menu_item* add_shell_item(struct menu_item* parent, LPITEMIDLIST p
             mii.hSubMenu = item->menuhandle;
 
             mi.cbSize = sizeof(mi);
-            mi.fMask = MIM_MENUDATA;
+            mi.fMask = MIM_MENUDATA|MIM_STYLE;
+            mi.dwStyle = MNS_CHECKORBMP;
             mi.dwMenuData = (ULONG_PTR)item;
             SetMenuInfo(item->menuhandle, &mi);
         }
+        else if ((link = load_shelllink(wszPath))) 
+        {
+            hicon = extract_icon(link, FALSE);
+            IShellLinkW_Release(link);
+        }        
 
+        if (!hicon) 
+        {
+            int iconIndex = get_icon_index(item->displayname, item->folder ? TRUE : FALSE);
+            ExtractIconExA("shell32.dll", iconIndex, NULL, &hicon, 1);
+        }
+
+        item->hbitmap = icon_to_bitmap(hicon);
+        mii.hbmpItem = item->hbitmap;
         InsertMenuItemW(parent->menuhandle, i, TRUE, &mii);
 
         list_add_tail(&items, &item->entry);
@@ -296,7 +385,8 @@ static struct menu_item* add_shell_item(struct menu_item* parent, LPITEMIDLIST p
         SetMenuItemInfoW(parent_menu, i, TRUE, &mii);
 
         mi.cbSize = sizeof(mi);
-        mi.fMask = MIM_MENUDATA;
+        mi.fMask = MIM_MENUDATA|MIM_STYLE;
+        mi.dwStyle = MNS_CHECKORBMP;
         mi.dwMenuData = (ULONG_PTR)item;
         SetMenuInfo(item->menuhandle, &mi);
 
@@ -337,6 +427,12 @@ static void destroy_menus(void)
 
     DestroyMenu(root_menu.menuhandle);
     root_menu.menuhandle = NULL;
+    
+    if (root_menu.hbitmap) 
+    {
+        DeleteObject(root_menu.hbitmap);
+        root_menu.hbitmap = NULL;
+    }    
 
     while (!list_empty(&items))
     {
@@ -346,6 +442,12 @@ static void destroy_menus(void)
 
         if (item->folder)
             IShellFolder_Release(item->folder);
+        
+        if (item->hbitmap) 
+        {
+            DeleteObject(item->hbitmap);
+            item->hbitmap = NULL;            
+        }        
 
         CoTaskMemFree(item->pidl);
         CoTaskMemFree(item->displayname);
@@ -450,6 +552,7 @@ void do_startmenu(HWND hwnd)
     MENUITEMINFOW mii;
     RECT rc={0,0,0,0};
     TPMPARAMS tpm;
+    HICON hicon = NULL;
     WCHAR label[64];
 
     destroy_menus();
@@ -491,9 +594,13 @@ void do_startmenu(HWND hwnd)
 
     LoadStringW(NULL, IDS_RUN, label, ARRAY_SIZE(label));
     mii.cbSize = sizeof(mii);
-    mii.fMask = MIIM_STRING|MIIM_ID;
+    mii.fMask = MIIM_STRING|MIIM_ID|MIIM_BITMAP;
     mii.dwTypeData = label;
     mii.wID = MENU_ID_RUN;
+    
+    ExtractIconExA("shell32.dll", -515, NULL, &hicon, 1);
+    root_menu.hbitmap = icon_to_bitmap(hicon);
+    mii.hbmpItem = root_menu.hbitmap;    
     InsertMenuItemW(root_menu.menuhandle, -1, TRUE, &mii);
 
     mii.fMask = MIIM_FTYPE;
@@ -501,14 +608,18 @@ void do_startmenu(HWND hwnd)
     InsertMenuItemW(root_menu.menuhandle, -1, TRUE, &mii);
 
     LoadStringW(NULL, IDS_EXIT_LABEL, label, ARRAY_SIZE(label));
-    mii.fMask = MIIM_STRING|MIIM_ID;
+    mii.fMask = MIIM_STRING|MIIM_ID|MIIM_BITMAP;
     mii.dwTypeData = label;
     mii.wID = MENU_ID_EXIT;
+    
+    ExtractIconExA("shell32.dll", -28, NULL, &hicon, 1);
+    root_menu.hbitmap = icon_to_bitmap(hicon);
+    mii.hbmpItem = root_menu.hbitmap;    
     InsertMenuItemW(root_menu.menuhandle, -1, TRUE, &mii);
 
     mi.cbSize = sizeof(mi);
     mi.fMask = MIM_STYLE;
-    mi.dwStyle = MNS_NOTIFYBYPOS;
+    mi.dwStyle = MNS_NOTIFYBYPOS|MNS_CHECKORBMP;
     SetMenuInfo(root_menu.menuhandle, &mi);
 
     GetWindowRect(hwnd, &rc);
