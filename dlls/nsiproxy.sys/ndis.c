@@ -311,6 +311,14 @@ static unsigned int update_if_table( void )
 {
     struct if_nameindex *indices = if_nameindex(), *entry;
     unsigned int append_count = 0;
+    static int do_not_update = -1;
+    
+    if (do_not_update == -1)
+        do_not_update = getenv("WINE_DO_NOT_UPDATE_IF_TABLE") && atoi(getenv("WINE_DO_NOT_UPDATE_IF_TABLE"));
+    
+    if (do_not_update) return 0;
+    
+    indices = if_nameindex();
 
     for (entry = indices; entry->if_index; entry++)
     {
