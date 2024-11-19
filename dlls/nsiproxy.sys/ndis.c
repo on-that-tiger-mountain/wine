@@ -18,10 +18,6 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
-#if 0
-#pragma makedep unix
-#endif
-
 #include "config.h"
 
 #include <stdarg.h>
@@ -89,7 +85,6 @@
 #include "wine/nsi.h"
 #include "wine/list.h"
 #include "wine/debug.h"
-#include "wine/unixlib.h"
 
 #include "nsiproxy_private.h"
 
@@ -256,9 +251,9 @@ static WCHAR *strdupAtoW( const char *str )
     DWORD len;
 
     if (!str) return ret;
-    len = strlen( str ) + 1;
+    len = MultiByteToWideChar( CP_UNIXCP, 0, str, -1, NULL, 0 );
     ret = malloc( len * sizeof(WCHAR) );
-    if (ret) ntdll_umbstowcs( str, len, ret, len );
+    if (ret) MultiByteToWideChar( CP_UNIXCP, 0, str, -1, ret, len );
     return ret;
 }
 
