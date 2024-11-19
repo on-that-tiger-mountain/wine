@@ -1,9 +1,8 @@
 MODULE    = nsiproxy.sys
-UNIXLIB   = nsiproxy.so
-IMPORTS   = ntoskrnl
+IMPORTS   = ntoskrnl uuid
 EXTRALIBS = $(PROCSTAT_LIBS)
 
-EXTRADLLFLAGS = -Wl,--subsystem,native
+EXTRADLLFLAGS = -Wl,--subsystem,native -mcygwin
 
 C_SRCS = \
 	device.c \
