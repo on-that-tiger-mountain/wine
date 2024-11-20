@@ -17,9 +17,6 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
-#if 0
-#pragma makedep unix
-#endif
 
 #include <stdarg.h>
 
@@ -126,28 +123,3 @@ NTSTATUS nsi_get_parameter_ex( struct nsi_get_parameter_ex *params )
     return entry->get_parameter( params->key, params->key_size, params->param_type,
                                  params->data, params->data_size, params->data_offset );
 }
-
-static NTSTATUS unix_nsi_enumerate_all_ex( void *args )
-{
-    struct nsi_enumerate_all_ex *params = (struct nsi_enumerate_all_ex *)args;
-    return nsi_enumerate_all_ex( params );
-}
-
-static NTSTATUS unix_nsi_get_all_parameters_ex( void *args )
-{
-    struct nsi_get_all_parameters_ex *params = (struct nsi_get_all_parameters_ex *)args;
-    return nsi_get_all_parameters_ex( params );
-}
-
-static NTSTATUS unix_nsi_get_parameter_ex( void *args )
-{
-    struct nsi_get_parameter_ex *params = (struct nsi_get_parameter_ex *)args;
-    return nsi_get_parameter_ex( params );
-}
-
-const unixlib_entry_t __wine_unix_call_funcs[] =
-{
-    unix_nsi_enumerate_all_ex,
-    unix_nsi_get_all_parameters_ex,
-    unix_nsi_get_parameter_ex
-};
