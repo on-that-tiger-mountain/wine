@@ -44376,36 +44376,6 @@ static NTSTATUS thunk32_vkMapMemory(void *args)
 }
 
 #ifdef _WIN64
-static NTSTATUS thunk64_vkMapMemory2KHR(void *args)
-{
-    struct vkMapMemory2KHR_params *params = args;
-
-    TRACE("%p, %p, %p\n", params->device, params->pMemoryMapInfo, params->ppData);
-
-    params->result = wine_vkMapMemory2KHR(params->device, params->pMemoryMapInfo, params->ppData);
-    return STATUS_SUCCESS;
-}
-#endif /* _WIN64 */
-
-static NTSTATUS thunk32_vkMapMemory2KHR(void *args)
-{
-    struct
-    {
-        PTR32 device;
-        PTR32 pMemoryMapInfo;
-        PTR32 ppData;
-        VkResult result;
-    } *params = args;
-    VkMemoryMapInfoKHR pMemoryMapInfo_host;
-
-    TRACE("%#x, %#x, %#x\n", params->device, params->pMemoryMapInfo, params->ppData);
-
-    convert_VkMemoryMapInfoKHR_win32_to_unwrapped_host((const VkMemoryMapInfoKHR32 *)UlongToPtr(params->pMemoryMapInfo), &pMemoryMapInfo_host);
-    params->result = wine_vkMapMemory2KHR((VkDevice)UlongToPtr(params->device), &pMemoryMapInfo_host, (void **)UlongToPtr(params->ppData));
-    return STATUS_SUCCESS;
-}
-
-#ifdef _WIN64
 static NTSTATUS thunk64_vkMergePipelineCaches(void *args)
 {
     struct vkMergePipelineCaches_params *params = args;
@@ -45600,35 +45570,6 @@ static NTSTATUS thunk32_vkUnmapMemory(void *args)
     TRACE("%#x, 0x%s\n", params->device, wine_dbgstr_longlong(params->memory));
 
     wine_vkUnmapMemory((VkDevice)UlongToPtr(params->device), params->memory);
-    return STATUS_SUCCESS;
-}
-
-#ifdef _WIN64
-static NTSTATUS thunk64_vkUnmapMemory2KHR(void *args)
-{
-    struct vkUnmapMemory2KHR_params *params = args;
-
-    TRACE("%p, %p\n", params->device, params->pMemoryUnmapInfo);
-
-    params->result = wine_vkUnmapMemory2KHR(params->device, params->pMemoryUnmapInfo);
-    return STATUS_SUCCESS;
-}
-#endif /* _WIN64 */
-
-static NTSTATUS thunk32_vkUnmapMemory2KHR(void *args)
-{
-    struct
-    {
-        PTR32 device;
-        PTR32 pMemoryUnmapInfo;
-        VkResult result;
-    } *params = args;
-    VkMemoryUnmapInfoKHR pMemoryUnmapInfo_host;
-
-    TRACE("%#x, %#x\n", params->device, params->pMemoryUnmapInfo);
-
-    convert_VkMemoryUnmapInfoKHR_win32_to_unwrapped_host((const VkMemoryUnmapInfoKHR32 *)UlongToPtr(params->pMemoryUnmapInfo), &pMemoryUnmapInfo_host);
-    params->result = wine_vkUnmapMemory2KHR((VkDevice)UlongToPtr(params->device), &pMemoryUnmapInfo_host);
     return STATUS_SUCCESS;
 }
 
