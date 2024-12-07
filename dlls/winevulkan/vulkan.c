@@ -1656,46 +1656,21 @@ void wine_vkFreeMemory(VkDevice handle, VkDeviceMemory memory_handle, const VkAl
     free(memory);
 }
 
-VkResult wine_vkMapMemory(VkDevice device, VkDeviceMemory memory, VkDeviceSize offset,
+VkResult wine_vkMapMemory(VkDevice handle, VkDeviceMemory memory_handle, VkDeviceSize offset,
                           VkDeviceSize size, VkMemoryMapFlags flags, void **data)
 {
-    const VkMemoryMapInfoKHR info =
-    {
-      .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
-      .flags = flags,
-      .memory = memory,
-      .offset = offset,
-      .size = size,
-   };
-
-   return wine_vkMapMemory2KHR(device, &info, data);
-}
-
-VkResult wine_vkMapMemory2KHR(VkDevice handle, const VkMemoryMapInfoKHR *map_info, void **data)
-{
     struct wine_device *device = wine_device_from_handle(handle);
-    struct wine_device_memory *memory = wine_device_memory_from_handle(map_info->memory);
-    VkMemoryMapInfoKHR info = *map_info;
+    struct wine_device_memory *memory = wine_device_memory_from_handle(memory_handle);
     VkResult result;
 
-    info.memory = memory->host_memory;
     if (memory->mapping)
     {
-        *data = (char *)memory->mapping + info.offset;
+        *data = (char *)memory->mapping + offset;
         TRACE("returning %p\n", *data);
         return VK_SUCCESS;
     }
 
-    if (device->funcs.p_vkMapMemory2KHR)
-    {
-        result = device->funcs.p_vkMapMemory2KHR(device->host_device, &info, data);
-    }
-    else
-    {
-        assert(!info.pNext);
-        result = device->funcs.p_vkMapMemory(device->host_device, info.memory, info.offset,
-                                             info.size, info.flags, data);
-    }
+    result = device->funcs.p_vkMapMemory(device->host_device, memory->host_memory, offset, size, flags, data);
 
 #ifdef _WIN64
     if (NtCurrentTeb()->WowTebOffset && result == VK_SUCCESS && (UINT_PTR)*data >> 32)
@@ -1710,36 +1685,13 @@ VkResult wine_vkMapMemory2KHR(VkDevice handle, const VkMemoryMapInfoKHR *map_inf
     return result;
 }
 
-void wine_vkUnmapMemory(VkDevice device, VkDeviceMemory memory)
-{
-    const VkMemoryUnmapInfoKHR info =
-    {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_UNMAP_INFO_KHR,
-        .memory = memory,
-    };
-
-    wine_vkUnmapMemory2KHR(device, &info);
-}
-
-VkResult wine_vkUnmapMemory2KHR(VkDevice handle, const VkMemoryUnmapInfoKHR *unmap_info)
+void wine_vkUnmapMemory(VkDevice handle, VkDeviceMemory memory_handle)
 {
     struct wine_device *device = wine_device_from_handle(handle);
-    struct wine_device_memory *memory = wine_device_memory_from_handle(unmap_info->memory);
-    VkMemoryUnmapInfoKHR info;
+    struct wine_device_memory *memory = wine_device_memory_from_handle(memory_handle);
 
-    if (memory->mapping)
-        return VK_SUCCESS;
-
-    if (!device->funcs.p_vkUnmapMemory2KHR)
-    {
-        assert(!unmap_info->pNext);
+    if (!memory->mapping)
         device->funcs.p_vkUnmapMemory(device->host_device, memory->host_memory);
-        return VK_SUCCESS;
-    }
-
-    info = *unmap_info;
-    info.memory = memory->host_memory;
-    return device->funcs.p_vkUnmapMemory2KHR(device->host_device, &info);
 }
 
 VkResult wine_vkCreateBuffer(VkDevice handle, const VkBufferCreateInfo *create_info,
