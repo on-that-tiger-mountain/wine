@@ -46018,7 +46018,6 @@ static const char * const vk_device_extensions[] =
     "VK_KHR_maintenance4",
     "VK_KHR_maintenance5",
     "VK_KHR_maintenance6",
-    "VK_KHR_map_memory2",
     "VK_KHR_multiview",
     "VK_KHR_performance_query",
     "VK_KHR_pipeline_executable_properties",
