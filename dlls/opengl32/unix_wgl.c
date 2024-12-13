@@ -43,13 +43,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(opengl);
 
-static const BOOL is_win64 = (sizeof(void *) > sizeof(int));
-
-static BOOL is_wow64(void)
-{
-    return !!NtCurrentTeb()->WowTebOffset;
-}
-
 static pthread_mutex_t wgl_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* handle management */
@@ -71,7 +64,6 @@ struct opengl_context
     GLubyte *extensions;         /* extension string */
     GLuint *disabled_exts;       /* indices of disabled extensions */
     struct wgl_context *drv_ctx; /* driver context */
-    GLubyte *version_string;
 };
 
 struct wgl_handle
@@ -176,13 +168,7 @@ static GLubyte *filter_extensions_list( const char *extensions, const char *disa
         memcpy( p, extensions, end - extensions );
         p[end - extensions] = 0;
 
-        /* We do not support GL_MAP_PERSISTENT_BIT, and hence
-         * ARB_buffer_storage, on wow64. */
-        if (is_win64 && is_wow64() && (!strcmp( p, "GL_ARB_buffer_storage" ) || !strcmp( p, "GL_EXT_buffer_storage" )))
-        {
-            TRACE( "-- %s (disabled due to wow64)\n", p );
-        }
-        else if (!has_extension( disabled, p, strlen( p ) ))
+        if (!has_extension( disabled, p, strlen( p ) ))
         {
             TRACE( "++ %s\n", p );
             p += end - extensions;
@@ -198,32 +184,13 @@ static GLubyte *filter_extensions_list( const char *extensions, const char *disa
     return (GLubyte *)str;
 }
 
-static const char *parse_gl_version( const char *gl_version, int *major, int *minor )
-{
-    const char *ptr = gl_version;
-
-    *major = atoi( ptr );
-    if (*major <= 0)
-        ERR( "Invalid OpenGL major version %d.\n", *major );
-
-    while (isdigit( *ptr )) ++ptr;
-    if (*ptr++ != '.')
-        ERR( "Invalid OpenGL version string %s.\n", debugstr_a(gl_version) );
-
-    *minor = atoi( ptr );
-
-    while (isdigit( *ptr )) ++ptr;
-    return ptr;
-}
-
 static GLuint *filter_extensions_index( TEB *teb, const char *disabled )
 {
     const struct opengl_funcs *funcs = teb->glTable;
-    const char *ext, *version;
     GLuint *disabled_index;
     GLint extensions_count;
     unsigned int i = 0, j;
-    int major, minor;
+    const char *ext;
 
     if (!funcs->ext.p_glGetStringi)
     {
@@ -231,11 +198,6 @@ static GLuint *filter_extensions_index( TEB *teb, const char *disabled )
         *func_ptr = funcs->wgl.p_wglGetProcAddress( "glGetStringi" );
         if (!funcs->ext.p_glGetStringi) return NULL;
     }
-
-    version = (const char *)funcs->gl.p_glGetString( GL_VERSION );
-    parse_gl_version( version, &major, &minor );
-    if (major < 3)
-        return NULL;
 
     funcs->gl.p_glGetIntegerv( GL_NUM_EXTENSIONS, &extensions_count );
     disabled_index = malloc( extensions_count * sizeof(*disabled_index) );
@@ -246,15 +208,7 @@ static GLuint *filter_extensions_index( TEB *teb, const char *disabled )
     for (j = 0; j < extensions_count; ++j)
     {
         ext = (const char *)funcs->ext.p_glGetStringi( GL_EXTENSIONS, j );
-
-        /* We do not support GL_MAP_PERSISTENT_BIT, and hence
-         * ARB_buffer_storage, on wow64. */
-        if (is_win64 && is_wow64() && (!strcmp( ext, "GL_ARB_buffer_storage" ) || !strcmp( ext, "GL_EXT_buffer_storage" )))
-        {
-            TRACE( "-- %s (disabled due to wow64)\n", ext );
-            disabled_index[i++] = j;
-        }
-        else if (!has_extension( disabled, ext, strlen( ext ) ))
+        if (!has_extension( disabled, ext, strlen( ext ) ))
         {
             TRACE( "++ %s\n", ext );
         }
@@ -375,6 +329,7 @@ static BOOL filter_extensions( TEB * teb, const char *extensions, GLubyte **exts
         else disabled = "";
     }
 
+    if (!disabled[0]) return FALSE;
     if (extensions && !*exts_list) *exts_list = filter_extensions_list( extensions, disabled );
     if (!*disabled_exts) *disabled_exts = filter_extensions_index( teb, disabled );
     return (exts_list && *exts_list) || *disabled_exts;
@@ -446,21 +401,6 @@ static void wrap_glGetIntegerv( TEB *teb, GLenum pname, GLint *data )
 
     if (pname == GL_NUM_EXTENSIONS && (disabled = disabled_extensions_index( teb )))
         while (*disabled++ != ~0u) (*data)--;
-
-    if (is_win64 && is_wow64())
-    {
-        /* 4.4 depends on ARB_buffer_storage, which we don't support on wow64. */
-        if (pname == GL_MAJOR_VERSION && *data > 4)
-            *data = 4;
-        else if (pname == GL_MINOR_VERSION)
-        {
-            GLint major;
-
-            funcs->gl.p_glGetIntegerv( GL_MAJOR_VERSION, &major );
-            if (major == 4 && *data > 3)
-                *data = 3;
-        }
-    }
 }
 
 static const GLubyte *wrap_glGetString( TEB *teb, GLenum name )
@@ -468,37 +408,12 @@ static const GLubyte *wrap_glGetString( TEB *teb, GLenum name )
     const struct opengl_funcs *funcs = teb->glTable;
     const GLubyte *ret;
 
-    if ((ret = funcs->gl.p_glGetString( name )))
+    if ((ret = funcs->gl.p_glGetString( name )) && name == GL_EXTENSIONS)
     {
-        if (name == GL_EXTENSIONS)
-        {
-            struct wgl_handle *ptr = get_current_context_ptr( teb );
-            GLubyte **extensions = &ptr->u.context->extensions;
-            GLuint **disabled = &ptr->u.context->disabled_exts;
-            if (*extensions || filter_extensions( teb, (const char *)ret, extensions, disabled )) return *extensions;
-        }
-        else if (name == GL_VERSION && is_win64 && is_wow64())
-        {
-            struct wgl_handle *ptr = get_current_context_ptr( teb );
-            int major, minor;
-            const char *rest;
-
-            if (ptr->u.context->version_string)
-                return ptr->u.context->version_string;
-
-            rest = parse_gl_version( (const char *)ret, &major, &minor );
-
-            /* 4.4 depends on ARB_buffer_storage, which we don't support on wow64. */
-            if (major > 4 || (major == 4 && minor >= 4))
-            {
-                char *str = malloc( 3 + strlen( rest ) + 1 );
-
-                sprintf( str, "4.3%s", rest );
-                if (InterlockedCompareExchangePointer( (void **)&ptr->u.context->version_string, str, NULL ))
-                    free( str );
-                return ptr->u.context->version_string;
-            }
-        }
+        struct wgl_handle *ptr = get_current_context_ptr( teb );
+        GLubyte **extensions = &ptr->u.context->extensions;
+        GLuint **disabled = &ptr->u.context->disabled_exts;
+        if (*extensions || filter_extensions( teb, (const char *)ret, extensions, disabled )) return *extensions;
     }
 
     return ret;
@@ -722,7 +637,6 @@ static BOOL wrap_wglDeleteContext( TEB *teb, HGLRC hglrc )
     }
     if (hglrc == teb->glCurrentRC) wrap_wglMakeCurrent( teb, 0, 0 );
     ptr->funcs->wgl.p_wglDeleteContext( ptr->u.context->drv_ctx );
-    free( ptr->u.context->version_string );
     free( ptr->u.context->disabled_exts );
     free( ptr->u.context->extensions );
     free( ptr->u.context );
