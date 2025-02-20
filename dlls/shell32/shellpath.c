@@ -2649,6 +2649,7 @@ end:
 static char *xdg_config;
 static DWORD xdg_config_len;
 
+#ifndef __ANDROID__
 static BOOL WINAPI init_xdg_dirs( INIT_ONCE *once, void *param, void **context )
 {
     const WCHAR *var, *fmt = L"\\??\\unix%s/user-dirs.dirs";
@@ -2727,6 +2728,7 @@ static char *get_xdg_path( const char *var )
     }
     return ret;
 }
+#endif /* !__ANDROID__ */
 
 static BOOL link_folder( HANDLE mgr, const UNICODE_STRING *path, const char *link )
 {
@@ -2751,9 +2753,13 @@ static BOOL link_folder( HANDLE mgr, const UNICODE_STRING *path, const char *lin
  * create_link
  *
  * Sets up a symbolic link for one of the 'My Whatever' shell folders to point
- * into the corresponding XDG directory.
+ * into the corresponding XDG/Android directory.
  */
+#ifdef __ANDROID__
+static void create_link( const WCHAR *path, const char *default_name )
+#else
 static void create_link( const WCHAR *path, const char *xdg_name, const char *default_name )
+#endif
 {
     UNICODE_STRING nt_name;
     char *target = NULL;
@@ -2770,10 +2776,12 @@ static void create_link( const WCHAR *path, const char *xdg_name, const char *de
     nt_name.Buffer = NULL;
     if (!RtlDosPathNameToNtPathName_U( path, &nt_name, NULL, NULL )) goto done;
 
+#ifndef __ANDROID__
     if ((target = get_xdg_path( xdg_name )))
     {
         if (link_folder( mgr, &nt_name, target )) goto done;
     }
+#endif
     link_folder( mgr, &nt_name, default_name );
 
 done:
@@ -2795,6 +2803,30 @@ static void _SHCreateSymbolicLink(int nFolder, const WCHAR *path)
 {
     DWORD folder = nFolder & CSIDL_FOLDER_MASK;
 
+#ifdef __ANDROID__
+    switch (folder) {
+        case CSIDL_PERSONAL:
+            create_link( path, "/storage/emulated/0/Documents" );
+            break;
+        case CSIDL_DESKTOPDIRECTORY:
+        	create_link( path, "/storage/emulated/0/MiceWine" );
+            break;
+        case CSIDL_MYPICTURES:
+            create_link( path, "/storage/emulated/0/Pictures" );
+            break;
+        case CSIDL_MYVIDEO:
+            create_link( path, "/storage/emulated/0/Movies" );
+            break;
+        case CSIDL_MYMUSIC:
+            create_link( path, "/storage/emulated/0/Music" );
+            break;
+        case CSIDL_DOWNLOADS:
+            create_link( path, "/storage/emulated/0/Download" );
+            break;
+        case CSIDL_TEMPLATES:
+            break;
+    }
+#else
     switch (folder) {
         case CSIDL_PERSONAL:
             create_link( path, "XDG_DOCUMENTS_DIR", "$HOME/Documents" );
@@ -2818,6 +2850,7 @@ static void _SHCreateSymbolicLink(int nFolder, const WCHAR *path)
             create_link( path, "XDG_TEMPLATES_DIR", "$HOME/Templates" );
             break;
     }
+#endif /* __ANDROID__ */
 }
 
 /******************************************************************************

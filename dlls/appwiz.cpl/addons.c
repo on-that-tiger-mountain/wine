@@ -317,11 +317,14 @@ static enum install_res install_from_default_dir(void)
 
 static WCHAR *get_cache_file_name(BOOL ensure_exists)
 {
+#ifndef __ANDROID__
     const WCHAR *xdg_dir;
+#endif
     const WCHAR *home_dir;
     WCHAR *cache_dir=NULL, *ret;
     size_t len, size;
 
+#ifndef __ANDROID__
     xdg_dir = _wgetenv( L"XDG_CACHE_HOME" );
     if (xdg_dir && *xdg_dir)
     {
@@ -330,7 +333,9 @@ static WCHAR *get_cache_file_name(BOOL ensure_exists)
         lstrcatW( cache_dir, xdg_dir );
         TRACE("cache dir %s\n", debugstr_w(cache_dir));
     }
-    else if ((home_dir = _wgetenv( L"WINEHOMEDIR" )))
+    else 
+#endif
+    if ((home_dir = _wgetenv( L"WINEHOMEDIR" )))
     {
         if (!(cache_dir = HeapAlloc( GetProcessHeap(), 0, wcslen(home_dir) * sizeof(WCHAR) + sizeof(L"\\.cache") ))) return NULL;
         lstrcpyW( cache_dir, home_dir );
