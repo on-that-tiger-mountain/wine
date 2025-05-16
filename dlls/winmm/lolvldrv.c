@@ -349,19 +349,24 @@ static  BOOL	MMDRV_InitPerType(LPWINE_MM_DRIVER lpDrv, UINT type, UINT wMsg)
     else return FALSE;
 
     TRACE("Got %u dev for (%s:%s)\n", count, lpDrv->drvname, llTypes[type].typestr);
-    
+
     if (HIWORD(count))
         return FALSE;
 
     /* got some drivers */
     if (lpDrv->bIsMapper) {
         llTypes[type].nMapper = MMDrvsHi;
+
+        if (type == MMDRV_MIDIIN || type == MMDRV_MIDIOUT) {
+            llTypes[type].wMaxId = 1;
+            part->nIDMax = 1;
+        }
     } else {
-	if (count == 0)
-	    return FALSE;
-	part->nIDMin = llTypes[type].wMaxId;
-	llTypes[type].wMaxId += count;
-	part->nIDMax = llTypes[type].wMaxId;
+        if (count == 0)
+            return FALSE;
+        part->nIDMin = llTypes[type].wMaxId;
+        llTypes[type].wMaxId += count;
+        part->nIDMax = llTypes[type].wMaxId;
     }
     TRACE("Setting min=%d max=%d (ttop=%d) for (%s:%s)\n",
 	  part->nIDMin, part->nIDMax, llTypes[type].wMaxId,
@@ -373,11 +378,11 @@ static  BOOL	MMDRV_InitPerType(LPWINE_MM_DRIVER lpDrv, UINT type, UINT wMsg)
 
     /* re-build the translation table */
     if (lpDrv->bIsMapper) {
-	TRACE("%s:Trans[%d] -> %s\n", llTypes[type].typestr, -1, MMDrvs[llTypes[type].nMapper].drvname);
-	llTypes[type].lpMlds[-1].uDeviceID = (UINT)-1;
-	llTypes[type].lpMlds[-1].type = type;
-	llTypes[type].lpMlds[-1].mmdIndex = llTypes[type].nMapper;
-	llTypes[type].lpMlds[-1].dwDriverInstance = 0;
+        TRACE("%s:Trans[%d] -> %s\n", llTypes[type].typestr, -1, MMDrvs[llTypes[type].nMapper].drvname);
+        llTypes[type].lpMlds[-1].uDeviceID = (UINT)-1;
+        llTypes[type].lpMlds[-1].type = type;
+        llTypes[type].lpMlds[-1].mmdIndex = llTypes[type].nMapper;
+        llTypes[type].lpMlds[-1].dwDriverInstance = 0;
     }
     for (i = k = 0; i <= MMDrvsHi; i++) {
 	while (MMDrvs[i].parts[type].nIDMin <= k && k < MMDrvs[i].parts[type].nIDMax) {
