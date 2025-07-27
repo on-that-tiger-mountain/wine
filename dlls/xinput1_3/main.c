@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -50,12 +51,24 @@ DEFINE_GUID(GUID_DEVINTERFACE_WINEXINPUT,0x6c53d5fd,0x6480,0x440f,0xb6,0x18,0x47
 /* Not defined in the headers, used only by XInputGetStateEx */
 #define XINPUT_GAMEPAD_GUIDE 0x0400
 
-#define CONTROLLER_BUFFER_SIZE 32
+#define CONTROLLER_BUFFER_SIZE 11
 #define BUFFER_SIZE (CONTROLLER_BUFFER_SIZE * 4)
 #define SERVER_PORT 7941
 
 #define REQUEST_GET_CONNECTION 1
 #define REQUEST_GET_CONTROLLER_STATE 2
+
+#define A_BUTTON 0x01
+#define B_BUTTON 0x02
+#define X_BUTTON 0x04
+#define Y_BUTTON 0x08
+#define RB_BUTTON 0x10
+#define LB_BUTTON 0x20
+#define LS_BUTTON 0x40
+#define RS_BUTTON 0x80
+
+#define START_BUTTON 0x01
+#define SELECT_BUTTON 0x02
 
 WINE_DEFAULT_DEBUG_CHANNEL(xinput);
 
@@ -129,11 +142,9 @@ static BOOL controller_check_caps(struct xinput_controller *controller)
     caps->Type = XINPUT_DEVTYPE_GAMEPAD;
     caps->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
 
-    /* W.I.P -> Rumble Support
     caps->Flags |= XINPUT_CAPS_FFB_SUPPORTED;
     caps->Vibration.wLeftMotorSpeed = 255;
     caps->Vibration.wRightMotorSpeed = 255;
-    */
 
     return TRUE;
 }
@@ -187,75 +198,37 @@ static void read_controller_state(struct xinput_controller *controller, char *bu
 
         buffer[0]: Type of operation
         buffer[1]: Controller Connected Status
-        buffer[2]: A Button State
-        buffer[3]: B Button State
-        buffer[4]: X Button State
-        buffer[5]: Y Button State
-        buffer[6]: LB Button State
-        buffer[7]: RB Button State
-        buffer[8]: Back Button State
-        buffer[9]: Start Button State
-        buffer[10]: LS Button State
-        buffer[11]: RS Button State
-        buffer[12]: Guide Button State
-        buffer[13]: D-Pad Status
-        buffer[14-16]: Left X Analog Status (0-255)
-        buffer[17-19]: Left Y Analog Status (0-255)
-        buffer[20-22]: Right X Analog Status (0-255)
-        buffer[23-25]: Right Y Analog Status (0-255)
-        buffer[26-28]: LT Status (0-255)
-        buffer[29-31]: RT Status (0-255)
+        buffer[2]: A, B, X, Y, RB, LB, RS, LS Button State
+        buffer[3]: Start, Select Button State
+        buffer[4]: D-Pad Status
+        buffer[5]: Left X Analog Status (0-255)
+        buffer[6]: Left Y Analog Status (0-255)
+        buffer[7]: Right X Analog Status (0-255)
+        buffer[8]: Right Y Analog Status (0-255)
+        buffer[9]: LT Status (0-255)
+        buffer[10]: RT Status (0-255)
     */
 
     XINPUT_STATE *state = &controller->state;
-    short thumbLX;
-    short thumbLY;
-    short thumbRX;
-    short thumbRY;
-    short rightTrigger;
-    short leftTrigger;
 
     state->Gamepad.wButtons = 0;
 
-    if (buffer[2]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_A;
-    }
-    if (buffer[3]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_B;
-    }
-    if (buffer[4]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_X;
-    }
-    if (buffer[5]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
-    }
-    if (buffer[6]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
-    }
-    if (buffer[7]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
-    }
-    if (buffer[8]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_BACK;
-    }
-    if (buffer[9]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_START;
-    }
-    if (buffer[10]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
-    }
-    if (buffer[11]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
-    }
-    if (buffer[12]) {
-        state->Gamepad.wButtons |= XINPUT_GAMEPAD_GUIDE;
-    }
+    if (buffer[2] & A_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_A;
+    if (buffer[2] & B_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_B;
+    if (buffer[2] & X_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_X;
+    if (buffer[2] & Y_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
+    if (buffer[2] & LB_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+    if (buffer[2] & RB_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+    if (buffer[2] & LS_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
+    if (buffer[2] & RS_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
+    if (buffer[3] & SELECT_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_BACK;
+    if (buffer[3] & START_BUTTON) state->Gamepad.wButtons |= XINPUT_GAMEPAD_START;
 
     /* 8 1 2
      * 7 0 3
      * 6 5 4 */
 
-    switch (buffer[13])
+    switch (buffer[4])
     {
         case 0: break;
         case 1: state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
@@ -268,21 +241,13 @@ static void read_controller_state(struct xinput_controller *controller, char *bu
         case 8: state->Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_UP; break;
     }
 
-    thumbLX = scale_value((buffer[14] * 100) + (buffer[15] * 10) + (buffer[16]));
-    thumbLY = scale_value((buffer[17] * 100) + (buffer[18] * 10) + (buffer[19]));
-    thumbRX = scale_value((buffer[20] * 100) + (buffer[21] * 10) + (buffer[22]));
-    thumbRY = scale_value((buffer[23] * 100) + (buffer[24] * 10) + (buffer[25]));
+    state->Gamepad.sThumbLX = scale_value(buffer[5]);
+    state->Gamepad.sThumbLY = scale_value(buffer[6]);
+    state->Gamepad.sThumbRX = scale_value(buffer[7]);
+    state->Gamepad.sThumbRY = scale_value(buffer[8]);
 
-    state->Gamepad.sThumbLX = thumbLX;
-    state->Gamepad.sThumbLY = thumbLY;
-    state->Gamepad.sThumbRX = thumbRX;
-    state->Gamepad.sThumbRY = thumbRY;
-
-    leftTrigger = (buffer[26] * 100) + (buffer[27] * 10) + (buffer[28]);
-    rightTrigger = (buffer[29] * 100) + (buffer[30] * 10) + (buffer[31]);
-
-    state->Gamepad.bRightTrigger = rightTrigger;
-    state->Gamepad.bLeftTrigger = leftTrigger;
+    state->Gamepad.bLeftTrigger = buffer[9];
+    state->Gamepad.bRightTrigger = buffer[10];
 
     EnterCriticalSection(&controller->crit);
 
@@ -340,7 +305,41 @@ static DWORD WINAPI gamepad_update_thread_proc(void *param)
     {
         memset(buffer, 0, BUFFER_SIZE);
 
+        /*
+            Sended Buffer Rumble Scheme
+
+            buffer[1]: Rumble Left Motor for Controller 0
+            buffer[2]: Rumble Right Motor for Controller 0
+            buffer[3]: Rumble Left Motor for Controller 1
+            buffer[4]: Rumble Right Motor for Controller 1
+            buffer[5]: Rumble Left Motor for Controller 2
+            buffer[6]: Rumble Right Motor for Controller 2
+            buffer[7]: Rumble Left Motor for Controller 3
+            buffer[8]: Rumble Right Motor for Controller 3
+        */
+
+        uint16_t wLeftMotorSpeedC0 = controllers[0].vibration.wLeftMotorSpeed;
+        uint16_t wRightMotorSpeedC0 = controllers[0].vibration.wRightMotorSpeed;
+
+        uint16_t wLeftMotorSpeedC1 = controllers[1].vibration.wLeftMotorSpeed;
+        uint16_t wRightMotorSpeedC1 = controllers[1].vibration.wRightMotorSpeed;
+
+        uint16_t wLeftMotorSpeedC2 = controllers[2].vibration.wLeftMotorSpeed;
+        uint16_t wRightMotorSpeedC2 = controllers[2].vibration.wRightMotorSpeed;
+
+        uint16_t wLeftMotorSpeedC3 = controllers[3].vibration.wLeftMotorSpeed;
+        uint16_t wRightMotorSpeedC3 = controllers[3].vibration.wRightMotorSpeed;
+
         buffer[0] = REQUEST_GET_CONTROLLER_STATE;
+        buffer[1] = (int) (wLeftMotorSpeedC0 / 257);
+        buffer[2] = (int) (wRightMotorSpeedC0 / 257);
+        buffer[3] = (int) (wLeftMotorSpeedC1 / 257);
+        buffer[4] = (int) (wRightMotorSpeedC1 / 257);
+        buffer[5] = (int) (wLeftMotorSpeedC2 / 257);
+        buffer[6] = (int) (wRightMotorSpeedC2 / 257);
+        buffer[7] = (int) (wLeftMotorSpeedC3 / 257);
+        buffer[8] = (int) (wRightMotorSpeedC3 / 257);
+
         sendto(serverSocket, buffer, BUFFER_SIZE, 0, (struct sockaddr*)&serverAddr, serverAddrSize);
 
         memset(buffer, 0, BUFFER_SIZE);
@@ -374,10 +373,10 @@ static DWORD WINAPI gamepad_update_thread_proc(void *param)
                 break;
 
             case REQUEST_GET_CONTROLLER_STATE:
-                memcpy(controller0, buffer, 32);
-                memcpy(controller1, buffer + 32, 32);
-                memcpy(controller2, buffer + 32 * 2, 32);
-                memcpy(controller3, buffer + 32 * 3, 32);
+                memcpy(controller0, buffer, CONTROLLER_BUFFER_SIZE);
+                memcpy(controller1, buffer + CONTROLLER_BUFFER_SIZE, CONTROLLER_BUFFER_SIZE);
+                memcpy(controller2, buffer + CONTROLLER_BUFFER_SIZE * 2, CONTROLLER_BUFFER_SIZE);
+                memcpy(controller3, buffer + CONTROLLER_BUFFER_SIZE * 3, CONTROLLER_BUFFER_SIZE);
 
                 char *controllers_ptrs[4] = { controller0, controller1, controller2, controller3 };
 
@@ -420,11 +419,6 @@ static void start_update_thread(void)
     InitOnceExecuteOnce(&init_once, start_update_thread_once, NULL, NULL);
 }
 
-static BOOL controller_lock(struct xinput_controller *controller)
-{
-    return TRUE;
-}
-
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 {
     TRACE("inst %p, reason %lu, reserved %p.\n", inst, reason, reserved);
@@ -453,7 +447,6 @@ void WINAPI DECLSPEC_HOTPATCH XInputEnable(BOOL enable)
 
     for (index = 0; index < XUSER_MAX_COUNT; index++)
     {
-        if (!controller_lock(&controllers[index])) continue;
         if (enable) controller_enable(&controllers[index]);
         else controller_disable(&controllers[index]);
     }
@@ -466,7 +459,8 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputSetState(DWORD index, XINPUT_VIBRATION *vib
     start_update_thread();
 
     if (index >= XUSER_MAX_COUNT) return ERROR_BAD_ARGUMENTS;
-    if (!controller_lock(&controllers[index])) return ERROR_DEVICE_NOT_CONNECTED;
+
+    controllers[index].vibration = *vibration;
 
     return ERROR_SUCCESS;
 }
@@ -631,8 +625,6 @@ static DWORD check_for_keystroke(const DWORD index, XINPUT_KEYSTROKE *keystroke)
         { XINPUT_GAMEPAD_Y, VK_PAD_Y },
         /* note: guide button does not send an event */
     };
-
-    if (!controller_lock(controller)) return ERROR_DEVICE_NOT_CONNECTED;
 
     cur = &controller->state.Gamepad;
 
