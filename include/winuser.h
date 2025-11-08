@@ -4715,7 +4715,6 @@ WINUSERAPI BOOL        WINAPI UnregisterPointerInputTarget(HWND,POINTER_INPUT_TY
 WINUSERAPI BOOL        WINAPI UnregisterPointerInputTargetEx(HWND,POINTER_INPUT_TYPE);
 WINUSERAPI BOOL        WINAPI UnregisterPowerSettingNotification(HPOWERNOTIFY);
 WINUSERAPI BOOL        WINAPI UnregisterSuspendResumeNotification(HPOWERNOTIFY);
-WINUSERAPI BOOL        WINAPI UnregisterTouchWindow(HWND);
 WINUSERAPI BOOL        WINAPI UpdateWindow(HWND);
 WINUSERAPI BOOL        WINAPI UserHandleGrantAccess(HANDLE,HANDLE,BOOL);
 WINUSERAPI UINT        WINAPI UserRealizePalette(HDC);
