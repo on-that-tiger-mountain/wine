@@ -583,7 +583,6 @@ static NTSTATUS wave_format_from_gst_caps(const GstCaps *caps, void *format, UIN
     {
         audio_format = gst_audio_format_from_string(str_value);
         format_tag = wave_format_tag_from_gst_audio_format(audio_format);
-        depth = GST_AUDIO_FORMAT_INFO_DEPTH(gst_audio_format_get_info(audio_format));
     }
 
     if (!gst_structure_get_int(structure, "channels", &channels))
