@@ -59,13 +59,12 @@ extern void set_max_threads(GstElement *element);
 extern void wg_format_from_caps(struct wg_format *format, const GstCaps *caps);
 extern bool wg_format_compare(const struct wg_format *a, const struct wg_format *b);
 extern GstCaps *wg_format_to_caps(const struct wg_format *format);
-extern uint32_t wg_channel_mask_from_gst(const GstAudioInfo *info);
 
 /* wg_transform.c */
 
 extern NTSTATUS wg_transform_create(void *args);
 extern NTSTATUS wg_transform_destroy(void *args);
-extern NTSTATUS wg_transform_get_output_type(void *args);
+extern NTSTATUS wg_transform_get_output_format(void *args);
 extern NTSTATUS wg_transform_set_output_type(void *args);
 extern NTSTATUS wg_transform_push_data(void *args);
 extern NTSTATUS wg_transform_read_data(void *args);
