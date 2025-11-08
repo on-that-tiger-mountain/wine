@@ -680,15 +680,6 @@ BOOL WINAPI RegisterTouchWindow( HWND hwnd, ULONG flags )
 }
 
 /*****************************************************************************
- * UnregisterTouchWindow (USER32.@)
- */
-BOOL WINAPI UnregisterTouchWindow( HWND hwnd )
-{
-    FIXME( "hwnd %p stub!\n", hwnd );
-    return TRUE;
-}
-
-/*****************************************************************************
  * GetGestureInfo (USER32.@)
  */
 BOOL WINAPI CloseGestureInfoHandle( HGESTUREINFO handle )
