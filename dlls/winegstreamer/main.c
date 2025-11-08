@@ -545,35 +545,17 @@ bool wg_transform_get_status(wg_transform_t transform, bool *accepts_input)
     return true;
 }
 
-HRESULT wg_transform_get_output_type(wg_transform_t transform, IMFMediaType **media_type)
+bool wg_transform_get_output_format(wg_transform_t transform, struct wg_format *format)
 {
-    struct wg_transform_get_output_type_params params =
+    struct wg_transform_get_output_format_params params =
     {
         .transform = transform,
+        .format = format,
     };
-    NTSTATUS status;
-    HRESULT hr;
 
-    TRACE("transform %#I64x, media_type %p.\n", transform, media_type);
+    TRACE("transform %#I64x, format %p.\n", transform, format);
 
-    if ((status = WINE_UNIX_CALL(unix_wg_transform_get_output_type, &params))
-            && status == STATUS_BUFFER_TOO_SMALL)
-    {
-        if (!(params.media_type.u.format = CoTaskMemAlloc(params.media_type.format_size)))
-            return ERROR_OUTOFMEMORY;
-        status = WINE_UNIX_CALL(unix_wg_transform_get_output_type, &params);
-    }
-
-    if (status)
-    {
-        CoTaskMemFree(params.media_type.u.format);
-        WARN("Failed to get output media type, status %#lx\n", status);
-        return HRESULT_FROM_NT(status);
-    }
-
-    hr = wg_media_type_to_mf(&params.media_type, media_type);
-    CoTaskMemFree(params.media_type.u.format);
-    return hr;
+    return !WINE_UNIX_CALL(unix_wg_transform_get_output_format, &params);
 }
 
 HRESULT wg_transform_set_output_type(wg_transform_t transform, IMFMediaType *media_type)
