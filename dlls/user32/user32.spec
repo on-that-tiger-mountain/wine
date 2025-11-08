@@ -1184,7 +1184,6 @@
 @ stdcall UnregisterPowerSettingNotification(ptr)
 # @ stub UnregisterSessionPort
 @ stdcall UnregisterSuspendResumeNotification(ptr)
-@ stdcall UnregisterTouchWindow(long)
 @ stdcall UnregisterUserApiHook()
 # @ stub UpdateDefaultDesktopThumbnail
 @ stdcall UpdateLayeredWindow(long long ptr ptr long ptr long ptr long)
