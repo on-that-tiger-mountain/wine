@@ -9569,15 +9569,15 @@ then :
 fi
 if test "$enable_largefile,$enable_year2038" != no,no
 then :
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $CPPFLAGS option for large files" >&5
-printf %s "checking for $CPPFLAGS option for large files... " >&6; }
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $CPPFLAGS option to enable large file support" >&5
+printf %s "checking for $CPPFLAGS option to enable large file support... " >&6; }
 if test ${ac_cv_sys_largefile_opts+y}
 then :
   printf %s "(cached) " >&6
 else case e in #(
   e) ac_save_CPPFLAGS=$CPPFLAGS
   ac_opt_found=no
-  for ac_opt in "none needed" "-D_FILE_OFFSET_BITS=64" "-D_LARGE_FILES=1"; do
+  for ac_opt in "none needed" "-D_FILE_OFFSET_BITS=64" "-D_LARGE_FILES=1" "-n32"; do
     if test x"$ac_opt" != x"none needed"
 then :
   CPPFLAGS="$ac_save_CPPFLAGS $ac_opt"
@@ -9654,14 +9654,16 @@ printf "%s\n" "#define _FILE_OFFSET_BITS 64" >>confdefs.h
 
 printf "%s\n" "#define _LARGE_FILES 1" >>confdefs.h
  ;; #(
+  "-n32") :
+    CC="$CC -n32" ;; #(
   *) :
     as_fn_error $? "internal error: bad value for \$ac_cv_sys_largefile_opts" "$LINENO" 5 ;;
 esac
 
 if test "$enable_year2038" != no
 then :
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $CPPFLAGS option for timestamps after 2038" >&5
-printf %s "checking for $CPPFLAGS option for timestamps after 2038... " >&6; }
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $CC option for timestamps after 2038" >&5
+printf %s "checking for $CC option for timestamps after 2038... " >&6; }
 if test ${ac_cv_sys_year2038_opts+y}
 then :
   printf %s "(cached) " >&6
@@ -11810,7 +11812,7 @@ printf "%s\n" "#define _GNU_SOURCE 1" >>confdefs.h
     DLLFLAGS="$DLLFLAGS -fPIC"
     LDDLLFLAGS="-fPIC"
     LDEXECFLAGS="-Wl,-pie"
-    enable_wineandroid_drv=${enable_wineandroid_drv:-yes}
+    enable_winex11_drv=${enable_winex11_drv:-yes}
     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether the compiler supports -Wl,-z,defs" >&5
 printf %s "checking whether the compiler supports -Wl,-z,defs... " >&6; }
 if test ${ac_cv_cflags__Wl__z_defs+y}
@@ -11873,79 +11875,6 @@ then :
 fi
     WINEPRELOADER_LDFLAGS="-static -nostartfiles -nodefaultlibs -Wl,-Ttext=0x7d400000"
 
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for -lGLESv2" >&5
-printf %s "checking for -lGLESv2... " >&6; }
-if test ${ac_cv_lib_soname_GLESv2+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_soname_save_LIBS=$LIBS
-LIBS="-lGLESv2  $LIBS"
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char glFlush (void);
-int
-main (void)
-{
-return glFlush ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  case "$LIBEXT" in
-    dll) ac_cv_lib_soname_GLESv2=`$ac_cv_path_LDD conftest.exe | grep "GLESv2" | sed -e "s/dll.*/dll/"';2,$d'` ;;
-    dylib) ac_cv_lib_soname_GLESv2=`$OTOOL -L conftest$ac_exeext | grep "libGLESv2\\.[0-9A-Za-z.]*dylib" | sed -e "s/^.*\/\(libGLESv2\.[0-9A-Za-z.]*dylib\).*$/\1/"';2,$d'` ;;
-    *) ac_cv_lib_soname_GLESv2=`$READELF -d conftest$ac_exeext | grep "NEEDED.*libGLESv2\\.$LIBEXT" | sed -e "s/^.*\\[\\(libGLESv2\\.$LIBEXT[^	 ]*\\)\\].*$/\1/"';2,$d'`
-       if ${ac_cv_lib_soname_GLESv2:+false} :
-then :
-  ac_cv_lib_soname_GLESv2=`$LDD conftest$ac_exeext | grep "libGLESv2\\.$LIBEXT" | sed -e "s/^.*\(libGLESv2\.$LIBEXT[^	 ]*\).*$/\1/"';2,$d'`
-fi ;;
-  esac
-else case e in #(
-  e) ac_cv_lib_soname_GLESv2= ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-  LIBS=$ac_check_soname_save_LIBS ;;
-esac
-fi
-if ${ac_cv_lib_soname_GLESv2:+false} :
-then :
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: not found" >&5
-printf "%s\n" "not found" >&6; }
-
-else case e in #(
-  e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_soname_GLESv2" >&5
-printf "%s\n" "$ac_cv_lib_soname_GLESv2" >&6; }
-
-printf "%s\n" "#define SONAME_LIBGLESV2 \"$ac_cv_lib_soname_GLESv2\"" >>confdefs.h
-
-        ;;
-esac
-fi
-
-    if test "x$exec_prefix" = xNONE
-    then
-      case $HOST_ARCH in
-        i386)    exec_prefix='${prefix}/x86' ;;
-        x86_64)  exec_prefix='${prefix}/x86_64' ;;
-        arm)     exec_prefix='${prefix}/armeabi-v7a' ;;
-        aarch64) exec_prefix='${prefix}/arm64-v8a' ;;
-      esac
-    fi
     ;;
 
   *)
