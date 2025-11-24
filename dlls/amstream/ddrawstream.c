@@ -677,18 +677,21 @@ static HRESULT WINAPI ddraw_IDirectDrawMediaStream_SetFormat(IDirectDrawMediaStr
 
     if (stream->peer && !is_format_compatible(stream, old_format.width, old_format.height, &old_format.pf))
     {
-        if (FAILED(hr = CopyMediaType(&old_media_type, &stream->mt)))
+        if (stream->using_private_allocator &&
+            (IPin_QueryAccept(stream->peer, &stream->mt) == S_OK))
         {
-            stream->format = old_format;
-            LeaveCriticalSection(&stream->cs);
-            return hr;
+            set_mt_from_desc(&stream->mt, format);
         }
-
-        set_mt_from_desc(&stream->mt, format);
-
-        if (!stream->using_private_allocator || IPin_QueryAccept(stream->peer, &stream->mt) != S_OK)
+        else
         {
             /* Reconnect. */
+            if (FAILED(hr = CopyMediaType(&old_media_type, &stream->mt)))
+            {
+                stream->format = old_format;
+                LeaveCriticalSection(&stream->cs);
+                return hr;
+            }
+
             old_peer = stream->peer;
             IPin_AddRef(old_peer);
 
@@ -704,9 +707,8 @@ static HRESULT WINAPI ddraw_IDirectDrawMediaStream_SetFormat(IDirectDrawMediaStr
                 return DDERR_INVALIDSURFACETYPE;
             }
             IPin_Release(old_peer);
+            FreeMediaType(&old_media_type);
         }
-
-        FreeMediaType(&old_media_type);
     }
 
     LeaveCriticalSection(&stream->cs);
