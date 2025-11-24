@@ -56,6 +56,7 @@ struct ddraw_stream
 
     IPin *peer;
     BOOL using_private_allocator;
+    IMemAllocator *private_allocator;
     AM_MEDIA_TYPE mt;
     struct format format;
     FILTER_STATE state;
@@ -64,10 +65,6 @@ struct ddraw_stream
     BOOL flushing;
     CONDITION_VARIABLE update_queued_cv;
     struct list update_queue;
-
-    CONDITION_VARIABLE allocator_cv;
-    bool committed;
-    LONG buffer_count; /* Only used for properties. */
 };
 
 struct ddraw_sample
@@ -77,17 +74,12 @@ struct ddraw_sample
     struct ddraw_stream *parent;
     IMultiMediaStream *mmstream;
     IDirectDrawSurface *surface;
-    DDSURFACEDESC surface_desc;
     RECT rect;
     STREAM_TIME start_time;
     STREAM_TIME end_time;
     BOOL continuous_update;
     CONDITION_VARIABLE update_cv;
     HANDLE external_event;
-
-    IMediaSample IMediaSample_iface;
-    unsigned int media_sample_refcount;
-    bool sync_point, preroll, discontinuity;
 
     struct list entry;
     HRESULT update_hr;
@@ -117,7 +109,7 @@ static void flush_update_queue(struct ddraw_stream *stream, HRESULT update_hr)
     }
 }
 
-static HRESULT copy_sample(struct ddraw_sample *sample, int stride, BYTE *pointer,
+static HRESULT process_update(struct ddraw_sample *sample, int stride, BYTE *pointer,
         STREAM_TIME start_time, STREAM_TIME end_time)
 {
     DDSURFACEDESC desc;
@@ -244,6 +236,7 @@ static ULONG WINAPI ddraw_IAMMediaStream_Release(IAMMediaStream *iface)
         DeleteCriticalSection(&stream->cs);
         if (stream->ddraw)
             IDirectDraw_Release(stream->ddraw);
+        IMemAllocator_Release(stream->private_allocator);
         free(stream);
     }
 
@@ -1372,27 +1365,7 @@ static HRESULT WINAPI ddraw_mem_allocator_SetProperties(IMemAllocator *iface,
 
     TRACE("stream %p, req_props %p, ret_props %p.\n", stream, req_props, ret_props);
 
-    if (!req_props->cbAlign)
-        return VFW_E_BADALIGN;
-
-    EnterCriticalSection(&stream->cs);
-
-    if (stream->committed)
-    {
-        LeaveCriticalSection(&stream->cs);
-        return VFW_E_ALREADY_COMMITTED;
-    }
-
-    stream->buffer_count = max(req_props->cBuffers, 1);
-
-    ret_props->cBuffers = stream->buffer_count;
-    ret_props->cbBuffer = stream->format.width * stream->format.height * stream->format.pf.dwRGBBitCount / 8;
-    ret_props->cbAlign = 1;
-    ret_props->cbPrefix = 0;
-
-    LeaveCriticalSection(&stream->cs);
-
-    return S_OK;
+    return IMemAllocator_SetProperties(stream->private_allocator, req_props, ret_props);
 }
 
 static HRESULT WINAPI ddraw_mem_allocator_GetProperties(IMemAllocator *iface, ALLOCATOR_PROPERTIES *props)
@@ -1401,14 +1374,7 @@ static HRESULT WINAPI ddraw_mem_allocator_GetProperties(IMemAllocator *iface, AL
 
     TRACE("stream %p, props %p.\n", stream, props);
 
-    EnterCriticalSection(&stream->cs);
-    props->cBuffers = stream->buffer_count;
-    props->cbBuffer = stream->format.width * stream->format.height * stream->format.pf.dwRGBBitCount / 8;
-    props->cbAlign = 1;
-    props->cbPrefix = 0;
-    LeaveCriticalSection(&stream->cs);
-
-    return S_OK;
+    return IMemAllocator_GetProperties(stream->private_allocator, props);
 }
 
 static HRESULT WINAPI ddraw_mem_allocator_Commit(IMemAllocator *iface)
@@ -1417,13 +1383,7 @@ static HRESULT WINAPI ddraw_mem_allocator_Commit(IMemAllocator *iface)
 
     TRACE("stream %p.\n", stream);
 
-    EnterCriticalSection(&stream->cs);
-    stream->committed = true;
-    /* We have nothing to actually commit; all of our samples are created by
-     * CreateSample(). */
-    LeaveCriticalSection(&stream->cs);
-
-    return S_OK;
+    return IMemAllocator_Commit(stream->private_allocator);
 }
 
 static HRESULT WINAPI ddraw_mem_allocator_Decommit(IMemAllocator *iface)
@@ -1432,75 +1392,30 @@ static HRESULT WINAPI ddraw_mem_allocator_Decommit(IMemAllocator *iface)
 
     TRACE("stream %p.\n", stream);
 
-    EnterCriticalSection(&stream->cs);
-    stream->committed = false;
-    /* We have nothing to actually decommit; all of our samples are created by
-     * CreateSample(). */
-    LeaveCriticalSection(&stream->cs);
-
-    return S_OK;
-}
-
-static struct ddraw_sample *get_pending_sample(struct ddraw_stream *stream)
-{
-    struct ddraw_sample *sample;
-
-    LIST_FOR_EACH_ENTRY(sample, &stream->update_queue, struct ddraw_sample, entry)
-    {
-        if (!sample->media_sample_refcount)
-            return sample;
-    }
-
-    return NULL;
+    return IMemAllocator_Decommit(stream->private_allocator);
 }
 
 static HRESULT WINAPI ddraw_mem_allocator_GetBuffer(IMemAllocator *iface,
-        IMediaSample **ret_sample, REFERENCE_TIME *start, REFERENCE_TIME *end, DWORD flags)
+        IMediaSample **sample, REFERENCE_TIME *start, REFERENCE_TIME *end, DWORD flags)
 {
     struct ddraw_stream *stream = impl_from_IMemAllocator(iface);
-    struct ddraw_sample *sample;
     HRESULT hr;
 
-    TRACE("stream %p, ret_sample %p, start %p, end %p, flags %#lx.\n", stream, ret_sample, start, end, flags);
+    TRACE("stream %p, sample %p, start %p, end %p, flags %#lx.\n", stream, sample, start, end, flags);
 
-    EnterCriticalSection(&stream->cs);
-
-    if (!stream->committed)
-    {
-        LeaveCriticalSection(&stream->cs);
-        return VFW_E_NOT_COMMITTED;
-    }
-
-    while (!(sample = get_pending_sample(stream)))
-        SleepConditionVariableCS(&stream->allocator_cv, &stream->cs, INFINITE);
-
-    sample->surface_desc.dwSize = sizeof(DDSURFACEDESC);
-    if ((FAILED(hr = IDirectDrawSurface_Lock(sample->surface,
-            &sample->rect, &sample->surface_desc, DDLOCK_WAIT, NULL))))
-    {
-        LeaveCriticalSection(&stream->cs);
+    if (FAILED(hr = IMemAllocator_GetBuffer(stream->private_allocator, sample, start, end, flags)))
         return hr;
-    }
 
-    /* Only these fields are reset. */
-    sample->sync_point = true;
-    sample->discontinuity = false;
-
-    sample->media_sample_refcount = 1;
-
-    LeaveCriticalSection(&stream->cs);
-
-    *ret_sample = &sample->IMediaSample_iface;
-    return S_OK;
+    return IMediaSample_SetMediaType(*sample, &stream->mt);
 }
 
 static HRESULT WINAPI ddraw_mem_allocator_ReleaseBuffer(IMemAllocator *iface, IMediaSample *sample)
 {
     struct ddraw_stream *stream = impl_from_IMemAllocator(iface);
 
-    FIXME("stream %p, sample %p, stub!\n", stream, sample);
+    TRACE("stream %p, sample %p.\n", stream, sample);
 
-    return E_NOTIMPL;
+    return IMemAllocator_ReleaseBuffer(stream->private_allocator, sample);
 }
 
 static const IMemAllocatorVtbl ddraw_mem_allocator_vtbl =
@@ -1569,66 +1484,28 @@ static HRESULT WINAPI ddraw_meminput_GetAllocatorRequirements(IMemInputPin *ifac
     return E_NOTIMPL;
 }
 
-static struct ddraw_sample *get_update_sample(struct ddraw_stream *stream, IMediaSample *buffer)
-{
-    const BITMAPINFOHEADER *bitmap_info = &((VIDEOINFOHEADER *)stream->mt.pbFormat)->bmiHeader;
-    STREAM_TIME start_stream_time, end_stream_time;
-    REFERENCE_TIME start_time = 0, end_time = 0;
-    struct ddraw_sample *sample;
-    BYTE *top_down_pointer;
-    int top_down_stride;
-    BYTE *pointer;
-    int stride;
-
-    /* Is it any of the samples we gave out from GetBuffer()? */
-    LIST_FOR_EACH_ENTRY(sample, &stream->update_queue, struct ddraw_sample, entry)
-    {
-        if (buffer == &sample->IMediaSample_iface)
-        {
-            sample->update_hr = S_OK;
-            return sample;
-        }
-    }
-
-    /* Find an unused sample and blit to it. */
-
-    IMediaSample_GetPointer(buffer, &pointer);
-    IMediaSample_GetTime(buffer, &start_time, &end_time);
-
-    start_stream_time = start_time + stream->segment_start;
-    end_stream_time = end_time + stream->segment_start;
-
-    stride = ((bitmap_info->biWidth * bitmap_info->biBitCount + 31) & ~31) / 8;
-    if (bitmap_info->biHeight < 0)
-    {
-        top_down_stride = stride;
-        top_down_pointer = pointer;
-    }
-    else
-    {
-        top_down_stride = -stride;
-        top_down_pointer = pointer + stride * (bitmap_info->biHeight - 1);
-    }
-
-    if ((sample = get_pending_sample(stream)))
-    {
-        sample->update_hr = copy_sample(sample, top_down_stride, top_down_pointer,
-                start_stream_time, end_stream_time);
-        return sample;
-    }
-
-    /* We don't have a sample yet. */
-    return NULL;
-}
-
 static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *buffer)
 {
     struct ddraw_stream *stream = impl_from_IMemInputPin(iface);
-    REFERENCE_TIME start_time = 0, end_time = 0;
+    BITMAPINFOHEADER *bitmap_info;
+    REFERENCE_TIME start_time = 0;
+    REFERENCE_TIME end_time = 0;
+    STREAM_TIME start_stream_time;
+    STREAM_TIME end_stream_time;
     IMediaStreamFilter *filter;
     STREAM_TIME current_time;
+    BYTE *top_down_pointer;
+    int top_down_stride;
+    BYTE *pointer;
+    BOOL top_down;
+    int stride;
+    HRESULT hr;
 
     TRACE("stream %p, buffer %p.\n", stream, buffer);
+
+    hr = IMediaSample_GetPointer(buffer, &pointer);
+    if (FAILED(hr))
+        return hr;
 
     IMediaSample_GetTime(buffer, &start_time, &end_time);
 
@@ -1645,6 +1522,17 @@ static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *
         return S_FALSE;
     }
 
+    bitmap_info = &((VIDEOINFOHEADER *)stream->mt.pbFormat)->bmiHeader;
+
+    stride = ((bitmap_info->biWidth * bitmap_info->biBitCount + 31) & ~31) / 8;
+    top_down = (bitmap_info->biHeight < 0);
+
+    top_down_stride = top_down ? stride : -stride;
+    top_down_pointer = top_down ? pointer : pointer + stride * (bitmap_info->biHeight - 1);
+
+    start_stream_time = start_time + stream->segment_start;
+    end_stream_time = end_time + stream->segment_start;
+
     filter = stream->filter;
 
     LeaveCriticalSection(&stream->cs);
@@ -1655,9 +1543,6 @@ static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *
 
     for (;;)
     {
-        struct ddraw_sample *sample;
-        IQualityControl *qc;
-
         if (stream->state == State_Stopped)
         {
             LeaveCriticalSection(&stream->cs);
@@ -1668,9 +1553,14 @@ static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *
             LeaveCriticalSection(&stream->cs);
             return S_FALSE;
         }
-
-        if ((sample = get_update_sample(stream, buffer)))
+        if (!list_empty(&stream->update_queue))
         {
+            struct ddraw_sample *sample = LIST_ENTRY(list_head(&stream->update_queue), struct ddraw_sample, entry);
+            IQualityControl *qc;
+
+            sample->update_hr = process_update(sample, top_down_stride, top_down_pointer,
+                    start_stream_time, end_stream_time);
+
             if (sample->continuous_update && SUCCEEDED(sample->update_hr))
             {
                 list_remove(&sample->entry);
@@ -1681,7 +1571,7 @@ static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *
                 remove_queued_update(sample);
             }
 
-            if (IMediaStreamFilter_GetCurrentStreamTime(filter, &current_time) == S_OK
+            if (S_OK == IMediaStreamFilter_GetCurrentStreamTime(filter, &current_time)
                     && SUCCEEDED(IPin_QueryInterface(stream->peer, &IID_IQualityControl, (void **)&qc)))
             {
                 Quality q;
@@ -1730,6 +1620,7 @@ static const IMemInputPinVtbl ddraw_meminput_vtbl =
 HRESULT ddraw_stream_create(IUnknown *outer, void **out)
 {
     struct ddraw_stream *object;
+    HRESULT hr;
 
     if (outer)
         return CLASS_E_NOAGGREGATION;
@@ -1749,8 +1640,12 @@ HRESULT ddraw_stream_create(IUnknown *outer, void **out)
     object->format.height = 100;
 
     object->using_private_allocator = TRUE;
-    InitializeConditionVariable(&object->allocator_cv);
-    object->buffer_count = 1;
+    if (FAILED(hr = CoCreateInstance(&CLSID_MemoryAllocator, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IMemAllocator, (void **)&object->private_allocator)))
+    {
+        free(object);
+        return hr;
+    }
 
     InitializeCriticalSection(&object->cs);
     InitializeConditionVariable(&object->update_queued_cv);
@@ -1809,10 +1704,6 @@ static ULONG WINAPI ddraw_sample_Release(IDirectDrawStreamSample *iface)
     if (!ref)
     {
         EnterCriticalSection(&sample->parent->cs);
-
-        while (sample->media_sample_refcount)
-            SleepConditionVariableCS(&sample->parent->allocator_cv, &sample->parent->cs, INFINITE);
-
         --sample->parent->sample_refs;
         LeaveCriticalSection(&sample->parent->cs);
 
@@ -1900,7 +1791,7 @@ static HRESULT WINAPI ddraw_sample_Update(IDirectDrawStreamSample *iface,
         LeaveCriticalSection(&sample->parent->cs);
         return MS_S_ENDOFSTREAM;
     }
-    if (sample->pending || sample->media_sample_refcount)
+    if (sample->pending)
     {
         LeaveCriticalSection(&sample->parent->cs);
         return MS_E_BUSY;
@@ -1913,7 +1804,6 @@ static HRESULT WINAPI ddraw_sample_Update(IDirectDrawStreamSample *iface,
     sample->external_event = event;
     list_add_tail(&sample->parent->update_queue, &sample->entry);
     WakeConditionVariable(&sample->parent->update_queued_cv);
-    WakeConditionVariable(&sample->parent->allocator_cv);
 
     if ((flags & SSUPDATE_ASYNC) || event)
     {
@@ -1921,7 +1811,7 @@ static HRESULT WINAPI ddraw_sample_Update(IDirectDrawStreamSample *iface,
         return MS_S_PENDING;
     }
 
-    while (sample->pending || sample->media_sample_refcount)
+    while (sample->pending)
         SleepConditionVariableCS(&sample->update_cv, &sample->parent->cs, INFINITE);
 
     LeaveCriticalSection(&sample->parent->cs);
@@ -1938,19 +1828,18 @@ static HRESULT WINAPI ddraw_sample_CompletionStatus(IDirectDrawStreamSample *ifa
 
     EnterCriticalSection(&sample->parent->cs);
 
-    if (sample->pending || sample->media_sample_refcount)
+    if (sample->pending)
     {
         if (flags & (COMPSTAT_NOUPDATEOK | COMPSTAT_ABORT))
         {
-            if (!sample->media_sample_refcount)
-                remove_queued_update(sample);
+            remove_queued_update(sample);
         }
         else if (flags & COMPSTAT_WAIT)
         {
             DWORD start_time = GetTickCount();
             DWORD elapsed = 0;
             sample->continuous_update = FALSE;
-            while ((sample->pending || sample->media_sample_refcount) && elapsed < milliseconds)
+            while (sample->pending && elapsed < milliseconds)
             {
                 DWORD sleep_time = milliseconds - elapsed;
                 if (!SleepConditionVariableCS(&sample->update_cv, &sample->parent->cs, sleep_time))
@@ -1960,10 +1849,7 @@ static HRESULT WINAPI ddraw_sample_CompletionStatus(IDirectDrawStreamSample *ifa
         }
     }
 
-    if (sample->pending || sample->media_sample_refcount)
-        hr = MS_S_PENDING;
-    else
-        hr = sample->update_hr;
+    hr = sample->pending ? MS_S_PENDING : sample->update_hr;
 
     LeaveCriticalSection(&sample->parent->cs);
 
@@ -2015,294 +1901,6 @@ static const struct IDirectDrawStreamSampleVtbl DirectDrawStreamSample_Vtbl =
     ddraw_sample_SetRect
 };
 
-static struct ddraw_sample *impl_from_IMediaSample(IMediaSample *iface)
-{
-    return CONTAINING_RECORD(iface, struct ddraw_sample, IMediaSample_iface);
-}
-
-static HRESULT WINAPI media_sample_QueryInterface(IMediaSample *iface, REFIID iid, void **out)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, iid %s, out %p.\n", sample, debugstr_guid(iid), out);
-
-    if (IsEqualIID(iid, &IID_IUnknown) || IsEqualIID(iid, &IID_IMediaSample))
-    {
-        IMediaSample_AddRef(iface);
-        *out = iface;
-        return S_OK;
-    }
-
-    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
-    *out = NULL;
-    return E_NOINTERFACE;
-}
-
-static ULONG WINAPI media_sample_AddRef(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-    ULONG refcount;
-
-    EnterCriticalSection(&sample->parent->cs);
-    refcount = ++sample->media_sample_refcount;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    TRACE("%p increasing refcount to %lu.\n", sample, refcount);
-
-    return refcount;
-}
-
-static ULONG WINAPI media_sample_Release(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-    ULONG refcount;
-
-    EnterCriticalSection(&sample->parent->cs);
-
-    /* This is not InterlockedDecrement(), because it's used in GetBuffer()
-     * among other functions and therefore needs to be protected by the CS
-     * anyway. */
-    refcount = --sample->media_sample_refcount;
-
-    TRACE("%p decreasing refcount to %lu.\n", sample, refcount);
-
-    if (!refcount)
-    {
-        IDirectDrawSurface_Unlock(sample->surface, NULL);
-
-        WakeConditionVariable(&sample->update_cv);
-
-        /* This sample is not released back to the pool if it's no longer
-         * pending an update.
-         *
-         * Use WakeAll, even though we're only releasing one sample, because we
-         * also potentially need to wake up a thread stuck in
-         * IDirectDrawStreamSample::Release().
-         * This is arguably wasteful, but in practice we're unlikely to have
-         * more than one thread in GetBuffer() at a time anyway. */
-        if (sample->pending)
-            WakeAllConditionVariable(&sample->parent->allocator_cv);
-    }
-
-    LeaveCriticalSection(&sample->parent->cs);
-    return refcount;
-}
-
-static unsigned int get_sample_size(struct ddraw_sample *sample)
-{
-    return sample->surface_desc.lPitch * sample->surface_desc.dwHeight;
-}
-
-static HRESULT WINAPI media_sample_GetPointer(IMediaSample *iface, BYTE **data)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, data %p.\n", sample, data);
-
-    *data = sample->surface_desc.lpSurface;
-    return S_OK;
-}
-
-static LONG WINAPI media_sample_GetSize(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p.\n", sample);
-
-    return get_sample_size(sample);
-}
-
-static HRESULT WINAPI media_sample_GetTime(IMediaSample *iface, REFERENCE_TIME *start, REFERENCE_TIME *end)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, start %p, end %p.\n", sample, start, end);
-
-    EnterCriticalSection(&sample->parent->cs);
-    *start = sample->start_time;
-    *end = sample->end_time;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_sample_SetTime(IMediaSample *iface, REFERENCE_TIME *start, REFERENCE_TIME *end)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, start %p, end %p.\n", sample, start, end);
-
-    EnterCriticalSection(&sample->parent->cs);
-    if (start)
-        sample->start_time = *start;
-    if (end)
-        sample->end_time = *end;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_sample_IsSyncPoint(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-    HRESULT hr;
-
-    TRACE("sample %p.\n", sample);
-
-    EnterCriticalSection(&sample->parent->cs);
-    hr = sample->sync_point ? S_OK : S_FALSE;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return hr;
-}
-
-static HRESULT WINAPI media_sample_SetSyncPoint(IMediaSample *iface, BOOL sync_point)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, sync_point %d.\n", sample, sync_point);
-
-    EnterCriticalSection(&sample->parent->cs);
-    sample->sync_point = sync_point;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_sample_IsPreroll(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-    HRESULT hr;
-
-    TRACE("sample %p.\n", sample);
-
-    EnterCriticalSection(&sample->parent->cs);
-    hr = sample->preroll ? S_OK : S_FALSE;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return hr;
-}
-
-static HRESULT WINAPI media_sample_SetPreroll(IMediaSample *iface, BOOL preroll)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, preroll %d.\n", sample, preroll);
-
-    EnterCriticalSection(&sample->parent->cs);
-    sample->preroll = preroll;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return S_OK;
-}
-
-static LONG WINAPI media_sample_GetActualDataLength(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p.\n", sample);
-
-    return get_sample_size(sample);
-}
-
-static HRESULT WINAPI media_sample_SetActualDataLength(IMediaSample *iface, LONG length)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, length %ld.\n", sample, length);
-
-    return (length == get_sample_size(sample) ? S_OK : E_FAIL);
-}
-
-static HRESULT WINAPI media_sample_GetMediaType(IMediaSample *iface, AM_MEDIA_TYPE **ret_mt)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, ret_mt %p.\n", sample, ret_mt);
-
-    if (!(*ret_mt = CreateMediaType(&sample->parent->mt)))
-        return E_OUTOFMEMORY;
-    return S_OK;
-}
-
-static HRESULT WINAPI media_sample_SetMediaType(IMediaSample *iface, AM_MEDIA_TYPE *mt)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    FIXME("sample %p, mt %p, stub!\n", sample, mt);
-    strmbase_dump_media_type(mt);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI media_sample_IsDiscontinuity(IMediaSample *iface)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-    HRESULT hr;
-
-    TRACE("sample %p.\n", sample);
-
-    EnterCriticalSection(&sample->parent->cs);
-    hr = sample->discontinuity ? S_OK : S_FALSE;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return hr;
-}
-
-static HRESULT WINAPI media_sample_SetDiscontinuity(IMediaSample *iface, BOOL discontinuity)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, discontinuity %d.\n", sample, discontinuity);
-
-    EnterCriticalSection(&sample->parent->cs);
-    sample->discontinuity = discontinuity;
-    LeaveCriticalSection(&sample->parent->cs);
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_sample_GetMediaTime(IMediaSample *iface, LONGLONG *start, LONGLONG *end)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, start %p, end %p, not implemented.\n", sample, start, end);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI media_sample_SetMediaTime(IMediaSample *iface, LONGLONG *start, LONGLONG *end)
-{
-    struct ddraw_sample *sample = impl_from_IMediaSample(iface);
-
-    TRACE("sample %p, start %p, end %p, not implemented.\n", sample, start, end);
-
-    return E_NOTIMPL;
-}
-
-static const struct IMediaSampleVtbl media_sample_vtbl =
-{
-    media_sample_QueryInterface,
-    media_sample_AddRef,
-    media_sample_Release,
-    media_sample_GetPointer,
-    media_sample_GetSize,
-    media_sample_GetTime,
-    media_sample_SetTime,
-    media_sample_IsSyncPoint,
-    media_sample_SetSyncPoint,
-    media_sample_IsPreroll,
-    media_sample_SetPreroll,
-    media_sample_GetActualDataLength,
-    media_sample_SetActualDataLength,
-    media_sample_GetMediaType,
-    media_sample_SetMediaType,
-    media_sample_IsDiscontinuity,
-    media_sample_SetDiscontinuity,
-    media_sample_GetMediaTime,
-    media_sample_SetMediaTime,
-};
-
 static HRESULT ddrawstreamsample_create(struct ddraw_stream *parent, IDirectDrawSurface *surface,
     const RECT *rect, IDirectDrawStreamSample **ddraw_stream_sample)
 {
@@ -2316,7 +1914,6 @@ static HRESULT ddrawstreamsample_create(struct ddraw_stream *parent, IDirectDraw
         return E_OUTOFMEMORY;
 
     object->IDirectDrawStreamSample_iface.lpVtbl = &DirectDrawStreamSample_Vtbl;
-    object->IMediaSample_iface.lpVtbl = &media_sample_vtbl;
     object->ref = 1;
     object->parent = parent;
     object->mmstream = parent->parent;
