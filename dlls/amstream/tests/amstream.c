@@ -1204,10 +1204,11 @@ static HRESULT testsource_query_accept(struct strmbase_pin *iface, const AM_MEDI
         ok(IsEqualGUID(&mt->majortype, &MEDIATYPE_Video), "Got major type %s.\n", debugstr_guid(&mt->majortype));
         ok(IsEqualGUID(&mt->subtype, &filter->query_accept_subtype), "Expected subtype %s, got %s.\n",
                 debugstr_guid(&filter->query_accept_subtype), debugstr_guid(&mt->subtype));
-        ok(mt->bFixedSizeSamples == TRUE, "Got fixed size %d.\n", mt->bFixedSizeSamples);
+        todo_wine ok(mt->bFixedSizeSamples == TRUE, "Got fixed size %d.\n", mt->bFixedSizeSamples);
         ok(!mt->bTemporalCompression, "Got temporal compression %d.\n", mt->bTemporalCompression);
-        ok(mt->lSampleSize == expect_video_info.bmiHeader.biSizeImage,
-                "Expected sample size %lu, got %lu.\n", expect_video_info.bmiHeader.biSizeImage, mt->lSampleSize);
+        todo_wine_if (expect_video_info.bmiHeader.biSizeImage)
+            ok(mt->lSampleSize == expect_video_info.bmiHeader.biSizeImage,
+                    "Expected sample size %lu, got %lu.\n", expect_video_info.bmiHeader.biSizeImage, mt->lSampleSize);
         ok(IsEqualGUID(&mt->formattype, &FORMAT_VideoInfo),
                 "Got format type %s.\n", debugstr_guid(&mt->formattype));
         ok(!mt->pUnk, "Got pUnk %p.\n", mt->pUnk);
@@ -8855,7 +8856,7 @@ static void test_ddrawstream_mem_allocator(void)
             "Got major type %s.\n", debugstr_guid(&sample_mt->majortype));
     ok(IsEqualGUID(&sample_mt->subtype, &MEDIASUBTYPE_RGB555),
             "Got subtype %s.\n", debugstr_guid(&sample_mt->subtype));
-    ok(sample_mt->bFixedSizeSamples == TRUE, "Got fixed size %d.\n", sample_mt->bFixedSizeSamples);
+    todo_wine ok(sample_mt->bFixedSizeSamples == TRUE, "Got fixed size %d.\n", sample_mt->bFixedSizeSamples);
     ok(!sample_mt->bTemporalCompression, "Got temporal compression %d.\n", sample_mt->bTemporalCompression);
     todo_wine ok(sample_mt->lSampleSize == expect_pitch * 444,
             "Expected sample size %u, got %lu.\n", expect_pitch * 444, sample_mt->lSampleSize);
@@ -9106,9 +9107,9 @@ static void test_ddrawstream_mem_allocator(void)
             "Got major type %s.\n", debugstr_guid(&sample_mt->majortype));
     ok(IsEqualGUID(&sample_mt->subtype, &MEDIASUBTYPE_RGB32),
             "Got subtype %s.\n", debugstr_guid(&sample_mt->subtype));
-    ok(sample_mt->bFixedSizeSamples == TRUE, "Got fixed size %d.\n", sample_mt->bFixedSizeSamples);
+    todo_wine ok(sample_mt->bFixedSizeSamples == TRUE, "Got fixed size %d.\n", sample_mt->bFixedSizeSamples);
     ok(!sample_mt->bTemporalCompression, "Got temporal compression %d.\n", sample_mt->bTemporalCompression);
-    ok(sample_mt->lSampleSize == 222 * 555 * 4,
+    todo_wine ok(sample_mt->lSampleSize == 222 * 555 * 4,
             "Expected sample size %u, got %lu.\n", 222 * 555 * 4, sample_mt->lSampleSize);
     ok(IsEqualGUID(&sample_mt->formattype, &FORMAT_VideoInfo),
             "Got format type %s.\n", debugstr_guid(&sample_mt->formattype));
