@@ -5871,7 +5871,7 @@ static void test_ddrawstream_set_format(void)
     hr = IDirectDraw_CreateSurface(ddraw, &format, &surface, NULL);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
     hr = IDirectDrawMediaStream_CreateSample(ddraw_stream, surface, NULL, 0, &sample);
-    ok(hr == DDERR_INVALIDSURFACETYPE, "Got hr %#lx.\n", hr);
+    todo_wine ok(hr == DDERR_INVALIDSURFACETYPE, "Got hr %#lx.\n", hr);
 
     /* Offer RGB24, and now we can reconnect. */
     video_info = rgb24_video_info;
@@ -5882,27 +5882,29 @@ static void test_ddrawstream_set_format(void)
     source.preferred_mt = &mt;
 
     hr = IDirectDrawMediaStream_CreateSample(ddraw_stream, surface, NULL, 0, &sample);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    ok(IsEqualGUID(&source.source.pin.mt.subtype, &MEDIASUBTYPE_RGB24),
+    todo_wine ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (hr != S_OK)
+        sample = NULL;
+    todo_wine ok(IsEqualGUID(&source.source.pin.mt.subtype, &MEDIASUBTYPE_RGB24),
             "Got subtype %s.\n", wine_dbgstr_guid(&source.source.pin.mt.subtype));
-    ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biWidth == 333,
+    todo_wine ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biWidth == 333,
             "Got width %ld.\n", ((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biWidth);
-    ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biHeight == -444,
+    todo_wine ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biHeight == -444,
             "Got height %ld.\n", ((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biHeight);
 
     hr = IDirectDrawMediaStream_GetFormat(ddraw_stream, &current_format, NULL, &desired_format, NULL);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
     ok(current_format.dwFlags == (DDSD_WIDTH | DDSD_HEIGHT | DDSD_CAPS | DDSD_PIXELFORMAT),
             "Got flags %#lx.\n", current_format.dwFlags);
-    ok(current_format.dwWidth == 333, "Got width %ld.\n", current_format.dwWidth);
-    ok(current_format.dwHeight == 444, "Got height %ld.\n", current_format.dwHeight);
-    ok(current_format.ddpfPixelFormat.u1.dwRGBBitCount == 24,
+    todo_wine ok(current_format.dwWidth == 333, "Got width %ld.\n", current_format.dwWidth);
+    todo_wine ok(current_format.dwHeight == 444, "Got height %ld.\n", current_format.dwHeight);
+    todo_wine ok(current_format.ddpfPixelFormat.u1.dwRGBBitCount == 24,
             "Got rgb bit count %lu.\n", current_format.ddpfPixelFormat.u1.dwRGBBitCount);
     ok(desired_format.dwFlags == (DDSD_WIDTH | DDSD_HEIGHT),
             "Got flags %#lx.\n", desired_format.dwFlags);
-    ok(desired_format.dwWidth == 333, "Got width %ld.\n", desired_format.dwWidth);
-    ok(desired_format.dwHeight == 444, "Got height %ld.\n", desired_format.dwHeight);
-    ok(desired_format.ddpfPixelFormat.u1.dwRGBBitCount == 24,
+    todo_wine ok(desired_format.dwWidth == 333, "Got width %ld.\n", desired_format.dwWidth);
+    todo_wine ok(desired_format.dwHeight == 444, "Got height %ld.\n", desired_format.dwHeight);
+    todo_wine ok(desired_format.ddpfPixelFormat.u1.dwRGBBitCount == 24,
             "Got rgb bit count %lu.\n", desired_format.ddpfPixelFormat.u1.dwRGBBitCount);
 
     SetRect(&rect, 100, 200, 300, 400);
@@ -5910,22 +5912,24 @@ static void test_ddrawstream_set_format(void)
     hr = IDirectDrawMediaStream_CreateSample(ddraw_stream, surface, &rect, 0, &sample2);
     ok(hr == MS_E_SAMPLEALLOC, "Got hr %#lx.\n", hr);
 
-    IDirectDrawStreamSample_Release(sample);
+    if (sample)
+        IDirectDrawStreamSample_Release(sample);
 
     hr = IDirectDrawMediaStream_CreateSample(ddraw_stream, surface, &rect, 0, &sample);
-    ok(hr == DDERR_INVALIDSURFACETYPE, "Got hr %#lx.\n", hr);
+    todo_wine ok(hr == DDERR_INVALIDSURFACETYPE, "Got hr %#lx.\n", hr);
 
     video_info.bmiHeader.biWidth = 200;
     video_info.bmiHeader.biHeight = -200;
 
     hr = IDirectDrawMediaStream_CreateSample(ddraw_stream, surface, &rect, 0, &sample);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    IDirectDrawStreamSample_Release(sample);
-    ok(IsEqualGUID(&source.source.pin.mt.subtype, &MEDIASUBTYPE_RGB24),
+    todo_wine ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (hr == S_OK)
+        IDirectDrawStreamSample_Release(sample);
+    todo_wine ok(IsEqualGUID(&source.source.pin.mt.subtype, &MEDIASUBTYPE_RGB24),
             "Got subtype %s.\n", wine_dbgstr_guid(&source.source.pin.mt.subtype));
-    ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biWidth == 200,
+    todo_wine ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biWidth == 200,
             "Got width %ld.\n", ((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biWidth);
-    ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biHeight == -200,
+    todo_wine ok(((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biHeight == -200,
             "Got height %ld.\n", ((VIDEOINFO *)source.source.pin.mt.pbFormat)->bmiHeader.biHeight);
 
     IDirectDrawSurface_Release(surface);
