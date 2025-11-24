@@ -1484,7 +1484,7 @@ static HRESULT WINAPI ddraw_meminput_GetAllocatorRequirements(IMemInputPin *ifac
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *buffer)
+static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *sample)
 {
     struct ddraw_stream *stream = impl_from_IMemInputPin(iface);
     BITMAPINFOHEADER *bitmap_info;
@@ -1501,13 +1501,13 @@ static HRESULT WINAPI ddraw_meminput_Receive(IMemInputPin *iface, IMediaSample *
     int stride;
     HRESULT hr;
 
-    TRACE("stream %p, buffer %p.\n", stream, buffer);
+    TRACE("stream %p, sample %p.\n", stream, sample);
 
-    hr = IMediaSample_GetPointer(buffer, &pointer);
+    hr = IMediaSample_GetPointer(sample, &pointer);
     if (FAILED(hr))
         return hr;
 
-    IMediaSample_GetTime(buffer, &start_time, &end_time);
+    IMediaSample_GetTime(sample, &start_time, &end_time);
 
     EnterCriticalSection(&stream->cs);
 
