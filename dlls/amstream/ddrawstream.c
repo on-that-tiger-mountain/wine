@@ -555,18 +555,12 @@ static unsigned int align(unsigned int n, unsigned int alignment)
 
 static void set_mt_from_desc(AM_MEDIA_TYPE *mt, const DDSURFACEDESC *format)
 {
-    VIDEOINFO *videoinfo = CoTaskMemAlloc(sizeof(VIDEOINFO));
+    VIDEOINFO *videoinfo = (VIDEOINFO *)mt->pbFormat;
 
-    mt->cbFormat = sizeof(VIDEOINFO);
-    mt->pbFormat = (BYTE *)videoinfo;
-
-    memset(videoinfo, 0, sizeof(*videoinfo));
-    videoinfo->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     videoinfo->bmiHeader.biWidth = format->dwWidth;
     videoinfo->bmiHeader.biHeight = format->dwHeight;
     videoinfo->bmiHeader.biBitCount = format->ddpfPixelFormat.dwRGBBitCount;
     videoinfo->bmiHeader.biCompression = BI_RGB;
-    videoinfo->bmiHeader.biPlanes = 1;
     videoinfo->bmiHeader.biSizeImage =
             align(format->dwWidth * format->dwHeight * format->ddpfPixelFormat.dwRGBBitCount / 8, 4);
 
@@ -577,6 +571,9 @@ static void set_mt_from_desc(AM_MEDIA_TYPE *mt, const DDSURFACEDESC *format)
     else if (format->ddpfPixelFormat.dwRGBBitCount == 16 && format->ddpfPixelFormat.dwRBitMask == 0xf800)
     {
         mt->subtype = MEDIASUBTYPE_RGB565;
+        mt->cbFormat = offsetof(VIDEOINFO, dwBitMasks[3]);
+        /* Note that we have to allocate the entire VIDEOINFO to satisfy C rules. */
+        mt->pbFormat = CoTaskMemRealloc(mt->pbFormat, sizeof(VIDEOINFO));
         videoinfo = (VIDEOINFO *)mt->pbFormat;
         videoinfo->bmiHeader.biCompression = BI_BITFIELDS;
         videoinfo->dwBitMasks[iRED]   = 0xf800;
@@ -694,7 +691,12 @@ static HRESULT WINAPI ddraw_IDirectDrawMediaStream_SetFormat(IDirectDrawMediaStr
             return MS_E_SAMPLEALLOC;
         }
 
-        old_media_type = stream->mt;
+        if (FAILED(hr = CopyMediaType(&old_media_type, &stream->mt)))
+        {
+            stream->format = old_format;
+            LeaveCriticalSection(&stream->cs);
+            return hr;
+        }
 
         set_mt_from_desc(&stream->mt, format);
 
