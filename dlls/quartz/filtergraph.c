@@ -134,6 +134,7 @@ struct filter_graph
     int HandleEcComplete;
     int HandleEcRepaint;
     int HandleEcClockChanged;
+    unsigned int got_ec_complete : 1;
     unsigned int media_events_disabled : 1;
 
     CRITICAL_SECTION cs;
@@ -2377,7 +2378,11 @@ static HRESULT WINAPI MediaSeeking_GetCurrentPosition(IMediaSeeking *iface, LONG
 
     EnterCriticalSection(&graph->cs);
 
-    if (graph->state == State_Running && !graph->needs_async_run && graph->refClock)
+    if (graph->got_ec_complete)
+    {
+        ret = graph->stream_stop;
+    }
+    else if (graph->state == State_Running && !graph->needs_async_run && graph->refClock)
     {
         REFERENCE_TIME time;
         IReferenceClock_GetTime(graph->refClock, &time);
@@ -5095,6 +5100,7 @@ static HRESULT WINAPI MediaFilter_Stop(IMediaFilter *iface)
     graph->state = State_Stopped;
     graph->needs_async_run = 0;
     work = graph->async_run_work;
+    graph->got_ec_complete = 0;
 
     /* Update the current position, probably to synchronize multiple streams. */
     IMediaSeeking_SetPositions(&graph->IMediaSeeking_iface, &graph->current_pos,
@@ -5393,7 +5399,7 @@ static HRESULT WINAPI MediaEventSink_Notify(IMediaEventSink *iface, LONG code,
             else
                 queue_media_event(graph, EC_COMPLETE, S_OK, 0);
             graph->CompletionStatus = EC_COMPLETE;
-            graph->current_pos = graph->stream_stop;
+            graph->got_ec_complete = 1;
             SetEvent(graph->hEventCompletion);
         }
     }
