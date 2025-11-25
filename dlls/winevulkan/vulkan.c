@@ -1795,10 +1795,6 @@ VkResult wine_vkMapMemory2KHR(VkDevice client_device, const VkMemoryMapInfoKHR *
     struct wine_phys_dev *physical_device = CONTAINING_RECORD(device->physical_device, struct wine_phys_dev, obj);
     struct wine_device_memory *memory = wine_device_memory_from_handle(map_info->memory);
     VkMemoryMapInfoKHR info = *map_info;
-    VkMemoryMapPlacedInfoEXT placed_info =
-    {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_PLACED_INFO_EXT,
-    };
     VkResult result;
 
     info.memory = memory->host.device_memory;
@@ -1809,47 +1805,47 @@ VkResult wine_vkMapMemory2KHR(VkDevice client_device, const VkMemoryMapInfoKHR *
         return VK_SUCCESS;
     }
 
-    if (physical_device->map_placed_align)
-    {
-        SIZE_T alloc_size = memory->size;
-
-        placed_info.pNext = info.pNext;
-        info.pNext = &placed_info;
-        info.offset = 0;
-        info.size = VK_WHOLE_SIZE;
-        info.flags |=  VK_MEMORY_MAP_PLACED_BIT_EXT;
-
-        if (NtAllocateVirtualMemory(GetCurrentProcess(), &placed_info.pPlacedAddress, zero_bits, &alloc_size,
-                                    MEM_COMMIT, PAGE_READWRITE))
-        {
-            ERR("NtAllocateVirtualMemory failed\n");
-            return VK_ERROR_OUT_OF_HOST_MEMORY;
-        }
-    }
-
     if (device->p_vkMapMemory2KHR)
     {
         result = device->p_vkMapMemory2KHR(device->host.device, &info, data);
     }
     else
     {
+        static char use_placed_addr = -1;
         assert(!info.pNext);
-        result = device->p_vkMapMemory(device->host.device, info.memory, info.offset,
-                                             info.size, info.flags, data);
-    }
 
-    if (placed_info.pPlacedAddress)
-    {
-        if (result != VK_SUCCESS)
+        if (use_placed_addr == -1)
+            use_placed_addr = getenv("WINEVKUSEPLACEDADDR") && atoi(getenv("WINEVKUSEPLACEDADDR"));
+
+        if (use_placed_addr)
         {
-            SIZE_T alloc_size = 0;
-            ERR("vkMapMemory2EXT failed: %d\n", result);
-            NtFreeVirtualMemory(GetCurrentProcess(), &placed_info.pPlacedAddress, &alloc_size, MEM_RELEASE);
-            return result;
+            SIZE_T alloc_size = memory->size;
+            void *placed_addr = NULL;
+
+            if (NtAllocateVirtualMemory(GetCurrentProcess(), &placed_addr, zero_bits, &alloc_size,
+                                        MEM_COMMIT, PAGE_READWRITE))
+            {
+                ERR("NtAllocateVirtualMemory failed\n");
+                return VK_ERROR_OUT_OF_HOST_MEMORY;
+            }
+
+            result = device->p_vkMapMemory(device->host.device, info.memory, info.offset,
+                                                 info.size, info.flags, &placed_addr);
+
+            if (result != VK_SUCCESS)
+            {
+                alloc_size = 0 ;
+                ERR("vkMapMemory2EXT failed: %d\n", result);
+                NtFreeVirtualMemory(GetCurrentProcess(), &placed_addr, &alloc_size, MEM_RELEASE);
+                return result;
+            }
+
+            memory->vm_map = placed_addr;
+            *data = (char *)memory->vm_map + map_info->offset;
         }
-        memory->vm_map = placed_info.pPlacedAddress;
-        *data = (char *)memory->vm_map + map_info->offset;
-        TRACE("Using placed mapping %p\n", memory->vm_map);
+        else
+            result = device->p_vkMapMemory(device->host.device, info.memory, info.offset,
+                                                 info.size, info.flags, data);
     }
 
 #ifdef _WIN64
