@@ -1126,6 +1126,9 @@ static void set_initial_wm_hints( Display *display, Window window )
 
     XChangeProperty( display, window, x11drv_atom(XdndAware),
                      XA_ATOM, 32, PropModeReplace, (unsigned char*)&dndVersion, 1 );
+
+    XChangeProperty( display, window, x11drv_atom(_NET_WM_HWND),
+                     XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&hwnd, 2 );
 }
 
 

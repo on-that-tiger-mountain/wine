@@ -560,6 +560,7 @@ enum x11drv_atoms
     XATOM_text_rtf,
     XATOM_text_richtext,
     XATOM_text_uri_list,
+    XATOM__NET_WM_HWND,
     NB_XATOMS
 };
 
