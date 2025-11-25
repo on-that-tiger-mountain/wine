@@ -239,7 +239,7 @@ bool push_event(GstPad *pad, GstEvent *event)
         const gchar *type_name = gst_event_type_get_name(GST_EVENT_TYPE(event));
         gchar *pad_name = gst_pad_get_name(pad);
 
-        GST_ERROR("Failed to push %s event %p to pad %s.", type_name, event, pad_name);
+//        GST_ERROR("Failed to push %s event %p to pad %s.", type_name, event, pad_name);
         g_free(pad_name);
         return false;
     }
