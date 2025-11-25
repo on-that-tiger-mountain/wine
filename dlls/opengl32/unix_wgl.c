@@ -1013,21 +1013,18 @@ void wrap_glFlush( TEB *teb )
 void wrap_glDrawPixels( TEB *teb, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels )
 {
     const struct opengl_funcs *funcs = teb->glTable;
-    flush_context( teb, NULL );
     funcs->p_glDrawPixels( width, height, format, type, pixels );
 }
 
 void wrap_glReadPixels( TEB *teb, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels )
 {
     const struct opengl_funcs *funcs = teb->glTable;
-    flush_context( teb, NULL );
     funcs->p_glReadPixels( x, y, width, height, format, type, pixels );
 }
 
 void wrap_glViewport( TEB *teb, GLint x, GLint y, GLsizei width, GLsizei height )
 {
     const struct opengl_funcs *funcs = teb->glTable;
-    flush_context( teb, NULL );
     funcs->p_glViewport( x, y, width, height );
 }
 
