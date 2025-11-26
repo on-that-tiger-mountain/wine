@@ -665,8 +665,6 @@ struct x11drv_win_data
     Window      embedder;       /* window id of embedder */
     Pixmap         icon_pixmap;
     Pixmap         icon_mask;
-    unsigned long *icon_bits;
-    unsigned int   icon_size;
     Time           user_time;
 
     struct window_state desired_state; /* window state tracking the desired / win32 state */

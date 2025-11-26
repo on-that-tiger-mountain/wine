@@ -650,77 +650,6 @@ static void sync_window_text( Display *display, Window win, const WCHAR *text )
 
 
 /***********************************************************************
- *              get_bitmap_argb
- *
- * Return the bitmap bits in ARGB format. Helper for setting icon hints.
- */
-static unsigned long *get_bitmap_argb( HDC hdc, HBITMAP color, HBITMAP mask, unsigned int *size )
-{
-    char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
-    BITMAPINFO *info = (BITMAPINFO *)buffer;
-    BITMAP bm;
-    unsigned long *bits = NULL;
-    unsigned int *ptr;
-    unsigned char *mask_bits = NULL;
-    int i, j;
-    BOOL has_alpha = FALSE;
-
-    if (!NtGdiExtGetObjectW( color, sizeof(bm), &bm )) return NULL;
-    info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info->bmiHeader.biWidth = bm.bmWidth;
-    info->bmiHeader.biHeight = -bm.bmHeight;
-    info->bmiHeader.biPlanes = 1;
-    info->bmiHeader.biBitCount = 32;
-    info->bmiHeader.biCompression = BI_RGB;
-    info->bmiHeader.biSizeImage = bm.bmWidth * bm.bmHeight * 4;
-    info->bmiHeader.biXPelsPerMeter = 0;
-    info->bmiHeader.biYPelsPerMeter = 0;
-    info->bmiHeader.biClrUsed = 0;
-    info->bmiHeader.biClrImportant = 0;
-    *size = bm.bmWidth * bm.bmHeight + 2;
-    if (!(bits = malloc( *size * sizeof(*bits) ))) goto failed;
-    ptr = (unsigned int *)bits;
-    if (!NtGdiGetDIBitsInternal( hdc, color, 0, bm.bmHeight, ptr + 2, info, DIB_RGB_COLORS, 0, 0 ))
-        goto failed;
-
-    ptr[0] = bm.bmWidth;
-    ptr[1] = bm.bmHeight;
-
-    for (i = 0; i < bm.bmWidth * bm.bmHeight; i++)
-        if ((has_alpha = (ptr[i + 2] & 0xff000000) != 0)) break;
-
-    if (!has_alpha)
-    {
-        unsigned int width_bytes = (bm.bmWidth + 31) / 32 * 4;
-        /* generate alpha channel from the mask */
-        info->bmiHeader.biBitCount = 1;
-        info->bmiHeader.biSizeImage = width_bytes * bm.bmHeight;
-        if (!(mask_bits = malloc( info->bmiHeader.biSizeImage ))) goto failed;
-        if (!NtGdiGetDIBitsInternal( hdc, mask, 0, bm.bmHeight, mask_bits, info, DIB_RGB_COLORS, 0, 0 ))
-            goto failed;
-        ptr = (unsigned int *)bits + 2;
-        for (i = 0; i < bm.bmHeight; i++)
-            for (j = 0; j < bm.bmWidth; j++, ptr++)
-                if (!((mask_bits[i * width_bytes + j / 8] << (j % 8)) & 0x80)) *ptr |= 0xff000000;
-        free( mask_bits );
-    }
-
-    /* convert to array of longs */
-    if (bits && sizeof(long) > sizeof(int))
-    {
-        ptr = (unsigned int *)bits;
-        for (i = *size - 1; i >= 0; i--) bits[i] = ptr[i];
-    }
-    return bits;
-
-failed:
-    free( bits );
-    free( mask_bits );
-    return NULL;
-}
-
-
-/***********************************************************************
  *              create_icon_pixmaps
  */
 static BOOL create_icon_pixmaps( HDC hdc, const ICONINFO *icon, Pixmap *icon_ret, Pixmap *mask_ret )
@@ -789,10 +718,8 @@ static HICON get_icon_info( HICON icon, ICONINFO *ii )
 static void fetch_icon_data( HWND hwnd, HICON icon_big, HICON icon_small )
 {
     struct x11drv_win_data *data;
-    ICONINFO ii, ii_small;
+    ICONINFO ii;
     HDC hDC;
-    unsigned int size;
-    unsigned long *bits;
     Pixmap icon_pixmap, mask_pixmap;
 
     icon_big = get_icon_info( icon_big, &ii );
@@ -809,38 +736,9 @@ static void fetch_icon_data( HWND hwnd, HICON icon_big, HICON icon_small )
         }
     }
 
-    icon_small = get_icon_info( icon_small, &ii_small );
-    if (!icon_small)
-    {
-        icon_small = get_icon_info( (HICON)send_message( hwnd, WM_GETICON, ICON_SMALL, 0 ), &ii_small );
-        if (!icon_small)
-            icon_small = get_icon_info( (HICON)NtUserGetClassLongPtrW( hwnd, GCLP_HICONSM ), &ii_small );
-    }
-
     if (!icon_big) return;
 
     hDC = NtGdiCreateCompatibleDC(0);
-    bits = get_bitmap_argb( hDC, ii.hbmColor, ii.hbmMask, &size );
-    if (bits && icon_small)
-    {
-        unsigned int size_small;
-        unsigned long *bits_small, *new;
-
-        if ((bits_small = get_bitmap_argb( hDC, ii_small.hbmColor, ii_small.hbmMask, &size_small )) &&
-            (bits_small[0] != bits[0] || bits_small[1] != bits[1]))  /* size must be different */
-        {
-            if ((new = realloc( bits, (size + size_small) * sizeof(unsigned long) )))
-            {
-                bits = new;
-                memcpy( bits + size, bits_small, size_small * sizeof(unsigned long) );
-                size += size_small;
-            }
-        }
-        free( bits_small );
-        NtGdiDeleteObjectApp( ii_small.hbmColor );
-        NtGdiDeleteObjectApp( ii_small.hbmMask );
-    }
-
     if (!create_icon_pixmaps( hDC, &ii, &icon_pixmap, &mask_pixmap )) icon_pixmap = mask_pixmap = 0;
 
     NtGdiDeleteObjectApp( ii.hbmColor );
@@ -851,18 +749,14 @@ static void fetch_icon_data( HWND hwnd, HICON icon_big, HICON icon_small )
     {
         if (data->icon_pixmap) XFreePixmap( gdi_display, data->icon_pixmap );
         if (data->icon_mask) XFreePixmap( gdi_display, data->icon_mask );
-        free( data->icon_bits );
         data->icon_pixmap = icon_pixmap;
         data->icon_mask = mask_pixmap;
-        data->icon_bits = bits;
-        data->icon_size = size;
         release_win_data( data );
     }
     else
     {
         if (icon_pixmap) XFreePixmap( gdi_display, icon_pixmap );
         if (mask_pixmap) XFreePixmap( gdi_display, mask_pixmap );
-        free( bits );
     }
 }
 
@@ -1069,22 +963,6 @@ static void set_style_hints( struct x11drv_win_data *data, DWORD style, DWORD ex
         XSetWMHints( data->display, data->whole_window, wm_hints );
         XFree( wm_hints );
     }
-
-    if (data->icon_bits)
-    {
-        TRACE( "window %p/%lx requesting _NET_WM_ICON, serial %lu\n", data->hwnd,
-               data->whole_window, NextRequest( data->display ) );
-        XChangeProperty( data->display, data->whole_window, x11drv_atom(_NET_WM_ICON),
-                         XA_CARDINAL, 32, PropModeReplace,
-                         (unsigned char *)data->icon_bits, data->icon_size );
-    }
-    else
-    {
-        TRACE( "window %p/%lx deleting _NET_WM_ICON, serial %lu\n", data->hwnd,
-               data->whole_window, NextRequest( data->display ) );
-        XDeleteProperty( data->display, data->whole_window, x11drv_atom(_NET_WM_ICON) );
-    }
-
 }
 
 
@@ -2561,7 +2439,6 @@ void X11DRV_DestroyWindow( HWND hwnd )
     if (data->icon_pixmap) XFreePixmap( gdi_display, data->icon_pixmap );
     if (data->icon_mask) XFreePixmap( gdi_display, data->icon_mask );
     if (data->parent) host_window_release( data->parent );
-    free( data->icon_bits );
     XDeleteContext( gdi_display, (XID)hwnd, win_data_context );
     release_win_data( data );
     free( data );
