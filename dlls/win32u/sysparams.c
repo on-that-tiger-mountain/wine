@@ -4044,9 +4044,9 @@ LONG WINAPI NtUserChangeDisplaySettings( UNICODE_STRING *devname, DEVMODEW *devm
 
     if (!(source = find_source( devname ))) return DISP_CHANGE_BADPARAM;
 
-    if (!source_get_full_mode( source, devmode, &full_mode )) ret = DISP_CHANGE_BADMODE;
+    if (flags & (CDS_TEST | CDS_FULLSCREEN | CDS_NORESET)) ret = DISP_CHANGE_SUCCESSFUL;
+    else if (!source_get_full_mode( source, devmode, &full_mode )) ret = DISP_CHANGE_BADMODE;
     else if ((flags & CDS_UPDATEREGISTRY) && !source_set_registry_settings( source, &full_mode )) ret = DISP_CHANGE_NOTUPDATED;
-    else if (flags & (CDS_TEST | CDS_NORESET)) ret = DISP_CHANGE_SUCCESSFUL;
     else ret = apply_display_settings( source, &full_mode, hwnd, flags, lparam );
     source_release( source );
 
