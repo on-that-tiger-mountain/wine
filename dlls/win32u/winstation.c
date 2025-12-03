@@ -45,6 +45,8 @@ WINE_DECLARE_DEBUG_CHANNEL(win);
 
 #define DESKTOP_ALL_ACCESS 0x01ff
 
+static const WCHAR winsta0[] = {'W','i','n','S','t','a','0',0};
+
 struct shared_input_cache
 {
     const shared_object_t *object;
@@ -811,20 +813,7 @@ HWND get_desktop_window(void)
 
     if (!thread_info->top_window)
     {
-        static const WCHAR appnameW[] = {'\\','?','?','\\','C',':','\\','w','i','n','d','o','w','s',
-            '\\','s','y','s','t','e','m','3','2','\\','e','x','p','l','o','r','e','r','.','e','x','e',0};
-        static const WCHAR cmdlineW[] = {'"','C',':','\\','w','i','n','d','o','w','s','\\',
-            's','y','s','t','e','m','3','2','\\','e','x','p','l','o','r','e','r','.','e','x','e','"',
-            ' ','/','d','e','s','k','t','o','p',0};
-        static const WCHAR system_dir[] = {'C',':','\\','w','i','n','d','o','w','s','\\',
-            's','y','s','t','e','m','3','2','\\',0};
-        RTL_USER_PROCESS_PARAMETERS params = { sizeof(params), sizeof(params) };
-        PS_ATTRIBUTE_LIST ps_attr;
-        PS_CREATE_INFO create_info;
         WCHAR desktop[MAX_PATH];
-        PEB *peb = NtCurrentTeb()->Peb;
-        HANDLE process, thread;
-        unsigned int status;
 
         SERVER_START_REQ( set_user_object_info )
         {
@@ -835,50 +824,70 @@ HWND get_desktop_window(void)
             {
                 size_t size = wine_server_reply_size( reply );
                 desktop[size / sizeof(WCHAR)] = 0;
-                TRACE( "starting explorer for desktop %s\n", debugstr_w(desktop) );
             }
             else
                 desktop[0] = 0;
         }
         SERVER_END_REQ;
 
-        params.Flags           = PROCESS_PARAMS_FLAG_NORMALIZED;
-        params.Environment     = peb->ProcessParameters->Environment;
-        params.EnvironmentSize = peb->ProcessParameters->EnvironmentSize;
-        params.hStdError       = peb->ProcessParameters->hStdError;
-        RtlInitUnicodeString( &params.CurrentDirectory.DosPath, system_dir );
-        RtlInitUnicodeString( &params.ImagePathName, appnameW + 4 );
-        RtlInitUnicodeString( &params.CommandLine, cmdlineW );
-        RtlInitUnicodeString( &params.WindowTitle, appnameW + 4 );
-        RtlInitUnicodeString( &params.Desktop, desktop );
-
-        ps_attr.TotalLength = sizeof(ps_attr);
-        ps_attr.Attributes[0].Attribute    = PS_ATTRIBUTE_IMAGE_NAME;
-        ps_attr.Attributes[0].Size         = sizeof(appnameW) - sizeof(WCHAR);
-        ps_attr.Attributes[0].ValuePtr     = (WCHAR *)appnameW;
-        ps_attr.Attributes[0].ReturnLength = NULL;
-
-        if (NtCurrentTeb64() && !NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR])
+        if (wcsncmp( winsta0, desktop, wcslen(winsta0) ))
         {
-            NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR] = TRUE;
-            status = NtCreateUserProcess( &process, &thread, PROCESS_ALL_ACCESS, THREAD_ALL_ACCESS,
-                                          NULL, NULL, 0, THREAD_CREATE_FLAGS_CREATE_SUSPENDED, &params,
-                                          &create_info, &ps_attr );
-            NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR] = FALSE;
+            static const WCHAR appnameW[] = {'\\','?','?','\\','C',':','\\','w','i','n','d','o','w','s',
+                '\\','s','y','s','t','e','m','3','2','\\','e','x','p','l','o','r','e','r','.','e','x','e',0};
+            static const WCHAR cmdlineW[] = {'"','C',':','\\','w','i','n','d','o','w','s','\\',
+                's','y','s','t','e','m','3','2','\\','e','x','p','l','o','r','e','r','.','e','x','e','"',
+                ' ','/','d','e','s','k','t','o','p',0};
+            static const WCHAR system_dir[] = {'C',':','\\','w','i','n','d','o','w','s','\\',
+                's','y','s','t','e','m','3','2','\\',0};
+
+            RTL_USER_PROCESS_PARAMETERS params = { sizeof(params), sizeof(params) };
+            PS_ATTRIBUTE_LIST ps_attr;
+            PS_CREATE_INFO create_info;
+            PEB *peb = NtCurrentTeb()->Peb;
+            HANDLE process, thread;
+            unsigned int status;
+
+            if (desktop[0] != 0)
+                TRACE( "starting explorer for desktop %s\n", debugstr_w(desktop) );
+
+            params.Flags           = PROCESS_PARAMS_FLAG_NORMALIZED;
+            params.Environment     = peb->ProcessParameters->Environment;
+            params.EnvironmentSize = peb->ProcessParameters->EnvironmentSize;
+            params.hStdError       = peb->ProcessParameters->hStdError;
+            RtlInitUnicodeString( &params.CurrentDirectory.DosPath, system_dir );
+            RtlInitUnicodeString( &params.ImagePathName, appnameW + 4 );
+            RtlInitUnicodeString( &params.CommandLine, cmdlineW );
+            RtlInitUnicodeString( &params.WindowTitle, appnameW + 4 );
+            RtlInitUnicodeString( &params.Desktop, desktop );
+
+            ps_attr.TotalLength = sizeof(ps_attr);
+            ps_attr.Attributes[0].Attribute    = PS_ATTRIBUTE_IMAGE_NAME;
+            ps_attr.Attributes[0].Size         = sizeof(appnameW) - sizeof(WCHAR);
+            ps_attr.Attributes[0].ValuePtr     = (WCHAR *)appnameW;
+            ps_attr.Attributes[0].ReturnLength = NULL;
+
+            if (NtCurrentTeb64() && !NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR])
+            {
+                NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR] = TRUE;
+                status = NtCreateUserProcess( &process, &thread, PROCESS_ALL_ACCESS, THREAD_ALL_ACCESS,
+                                              NULL, NULL, 0, THREAD_CREATE_FLAGS_CREATE_SUSPENDED, &params,
+                                              &create_info, &ps_attr );
+                NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR] = FALSE;
+            }
+            else
+                status = NtCreateUserProcess( &process, &thread, PROCESS_ALL_ACCESS, THREAD_ALL_ACCESS,
+                                              NULL, NULL, 0, THREAD_CREATE_FLAGS_CREATE_SUSPENDED, &params,
+                                              &create_info, &ps_attr );
+            if (!status)
+            {
+                NtResumeThread( thread, NULL );
+                TRACE_(win)( "started explorer\n" );
+                NtUserWaitForInputIdle( process, 10000, FALSE );
+                NtClose( thread );
+                NtClose( process );
+            }
+            else ERR_(win)( "failed to start explorer %x\n", status );
         }
-        else
-            status = NtCreateUserProcess( &process, &thread, PROCESS_ALL_ACCESS, THREAD_ALL_ACCESS,
-                                          NULL, NULL, 0, THREAD_CREATE_FLAGS_CREATE_SUSPENDED, &params,
-                                          &create_info, &ps_attr );
-        if (!status)
-        {
-            NtResumeThread( thread, NULL );
-            TRACE_(win)( "started explorer\n" );
-            NtUserWaitForInputIdle( process, 10000, FALSE );
-            NtClose( thread );
-            NtClose( process );
-        }
-        else ERR_(win)( "failed to start explorer %x\n", status );
 
         SERVER_START_REQ( get_desktop_window )
         {
@@ -975,8 +984,6 @@ void winstation_init(void)
     HANDLE handle, dir = NULL;
     OBJECT_ATTRIBUTES attr;
     UNICODE_STRING str;
-
-    static const WCHAR winsta0[] = {'W','i','n','S','t','a','0',0};
 
     if (params->Desktop.Length)
     {
