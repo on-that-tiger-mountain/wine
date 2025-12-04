@@ -56,6 +56,7 @@ struct ime
 
     IMEINFO info;
     WCHAR ui_class[17];
+    HWND ui_hwnd;
     struct list input_contexts;
 
     BOOL (WINAPI *pImeInquire)(IMEINFO *, void *, DWORD);
@@ -3211,6 +3212,18 @@ BOOL WINAPI ImmDisableLegacyIME(void)
     return TRUE;
 }
 
+static HWND get_ui_window(HKL hkl)
+{
+    struct ime *ime;
+    HWND hwnd;
+
+    if (!(ime = ime_acquire( hkl ))) return 0;
+    hwnd = ime->ui_hwnd;
+    ime_release( ime );
+
+    return hwnd;
+}
+
 static BOOL is_ime_ui_msg(UINT msg)
 {
     switch (msg)
@@ -3317,7 +3330,7 @@ LRESULT WINAPI __wine_ime_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 
     if (is_ime_ui_msg(msg))
     {
-        if ((ui_hwnd = get_ime_ui_window()))
+        if ((ui_hwnd = get_ui_window(NtUserGetKeyboardLayout(0))))
         {
             if (ansi)
                 return SendMessageA(ui_hwnd, msg, wparam, lparam);
