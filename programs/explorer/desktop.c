@@ -1323,6 +1323,8 @@ void manage_desktop( WCHAR *arg )
         initialize_display_settings( width, height );
         initialize_appbar();
 
+        if (using_root) enable_shell = FALSE;
+
         initialize_systray( using_root, enable_shell, show_systray, no_tray_items );
         if (!using_root && enable_launchers) initialize_launchers( hwnd );
 
