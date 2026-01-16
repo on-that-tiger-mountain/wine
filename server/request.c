@@ -663,9 +663,9 @@ static char *create_server_dir( int force )
     strcpy( server_dir, config_dir );
     strcat( server_dir, "/.wineserver" );
 #else
-    len += sizeof("/tmp/.wine-") + 12;
+    len += sizeof("/data/data/com.winlator/files/rootfs/tmp/.wine-") + 12;
     if (!(server_dir = malloc( len ))) fatal_error( "out of memory\n" );
-    sprintf( server_dir, "/tmp/.wine-%u", getuid() );
+    sprintf( server_dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u", getuid() );
 #endif
     create_dir( server_dir, &st2 );
 
