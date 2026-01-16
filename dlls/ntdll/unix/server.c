@@ -1252,9 +1252,9 @@ static const char *init_server_dir( dev_t dev, ino_t ino )
     strcpy( dir, config_dir );
     strcat( dir, "/.wineserver/server-" );
 #else
-    len += sizeof("/tmp/.wine-") + 12;
+    len += sizeof("/data/data/com.winlator/files/rootfs/tmp/.wine-") + 12;
     dir = malloc( len );
-    sprintf( dir, "/tmp/.wine-%u/server-", getuid() );
+    sprintf( dir, "/data/data/com.winlator/files/rootfs/tmp/.wine-%u/server-", getuid() );
 #endif
     p = dir + strlen( dir );
     if (dev != (unsigned long)dev)
@@ -1307,7 +1307,7 @@ static int setup_config_dir(void)
     {
         mkdir( "drive_c", 0777 );
         symlink( "../drive_c", "dosdevices/c:" );
-        symlink( "/", "dosdevices/z:" );
+        symlink( "/data/data/com.winlator/files/rootfs", "dosdevices/z:" );
     }
     else if (errno != EEXIST) fatal_perror( "cannot create %s/dosdevices", config_dir );
 
