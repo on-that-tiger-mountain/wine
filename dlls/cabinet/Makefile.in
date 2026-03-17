@@ -6,5 +6,6 @@ EXTRAINCL = $(ZLIB_PE_CFLAGS)
 SOURCES = \
 	cabinet.rc \
 	cabinet_main.c \
+	compressapi.c \
 	fci.c \
 	fdi.c
