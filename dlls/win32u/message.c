@@ -3241,7 +3241,7 @@ static BOOL process_driver_events( UINT events_mask, UINT wake_mask, UINT change
 {
     BOOL drained = FALSE;
 
-    if (check_internal_bits( QS_DRIVER )) drained = user_driver->pProcessEvents( events_mask );
+    if (user_driver->pProcessEvents( events_mask )) drained = TRUE;
 
     if (drained || !check_queue_masks( wake_mask, changed_mask ))
     {
