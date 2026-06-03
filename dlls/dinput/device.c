@@ -145,9 +145,11 @@ DWORD get_config_key( HKEY defkey, HKEY appkey, const WCHAR *name, WCHAR *buffer
     return ERROR_FILE_NOT_FOUND;
 }
 
-BOOL device_instance_is_disabled( const WCHAR *instance, BOOL *override )
+BOOL device_instance_is_disabled( DIDEVICEINSTANCEW *instance, BOOL *override )
 {
-    static const WCHAR *joystick_key = L"Joysticks";
+    static const WCHAR disabled_str[] = {'d', 'i', 's', 'a', 'b', 'l', 'e', 'd', 0};
+    static const WCHAR override_str[] = {'o', 'v', 'e', 'r', 'r', 'i', 'd', 'e', 0};
+    static const WCHAR joystick_key[] = {'J', 'o', 'y', 's', 't', 'i', 'c', 'k', 's', 0};
     WCHAR buffer[MAX_PATH];
     HKEY hkey, appkey, temp;
     BOOL disable = FALSE;
@@ -171,16 +173,16 @@ BOOL device_instance_is_disabled( const WCHAR *instance, BOOL *override )
     }
 
     /* Look for the "controllername"="disabled" key */
-    if (!get_config_key( hkey, appkey, instance, buffer, sizeof(buffer) ))
+    if (!get_config_key( hkey, appkey, instance->tszInstanceName, buffer, sizeof(buffer) ))
     {
-        if (!wcscmp( L"disabled", buffer ))
+        if (!wcscmp( disabled_str, buffer ))
         {
-            TRACE( "Disabling joystick '%s' based on registry key.\n", debugstr_w(instance) );
+            TRACE( "Disabling joystick '%s' based on registry key.\n", debugstr_w(instance->tszInstanceName) );
             disable = TRUE;
         }
-        else if (override && !wcscmp( L"override", buffer ))
+        else if (override && !wcscmp( override_str, buffer ))
         {
-            TRACE( "Force enabling joystick '%s' based on registry key.\n", debugstr_w(instance) );
+            TRACE( "Force enabling joystick '%s' based on registry key.\n", debugstr_w(instance->tszInstanceName) );
             *override = TRUE;
         }
     }
