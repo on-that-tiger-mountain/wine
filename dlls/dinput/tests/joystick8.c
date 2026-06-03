@@ -2107,6 +2107,7 @@ static void test_simple_joystick( DWORD version )
     prop_dword.dwData = 0xdeadbeef;
     hr = IDirectInputDevice8_GetProperty( device, DIPROP_JOYSTICKID, &prop_dword.diph );
     ok( hr == DI_OK, "GetProperty DIPROP_JOYSTICKID returned %#lx\n", hr );
+    todo_wine
     ok( prop_dword.dwData == 0, "got %#lx expected 0\n", prop_dword.dwData );
 
     prop_dword.dwData = 0xdeadbeef;
@@ -6621,7 +6622,7 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[i].serial_str );
-        check_device_joystick_id( device, i, FALSE );
+        check_device_joystick_id( device, i, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
@@ -6647,7 +6648,7 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[expected_dev_idx].serial_str );
-        check_device_joystick_id( device, expected_dev_idx, FALSE );
+        check_device_joystick_id( device, expected_dev_idx, TRUE );
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
     }
@@ -6673,7 +6674,7 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[expected_dev_idx].serial_str );
-        check_device_joystick_id( device, i, FALSE );
+        check_device_joystick_id( device, i, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
@@ -6697,8 +6698,8 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[i].serial_str );
-        if (i < 2) check_device_joystick_id( device, i, FALSE );
-        else check_device_joystick_id( device, (i == 2) ? 3 : 2, FALSE );
+        if (i < 2) check_device_joystick_id( device, i, TRUE );
+        else check_device_joystick_id( device, (i == 2) ? 3 : 2, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
@@ -6718,7 +6719,7 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[i].serial_str );
-        check_device_joystick_id( device, i, FALSE );
+        check_device_joystick_id( device, i, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
@@ -6737,7 +6738,7 @@ static void test_joystick_id( DWORD version )
     ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
     check_device_hid_serial( device, descs[0].serial_str );
-    check_device_joystick_id( device, 0, FALSE );
+    check_device_joystick_id( device, 0, TRUE );
 
     IDirectInputDevice8_Release( device );
 
@@ -6754,7 +6755,7 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[i].serial_str );
-        check_device_joystick_id( device, !i ? 15 : i, FALSE );
+        check_device_joystick_id( device, !i ? 15 : i, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
@@ -6779,7 +6780,7 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[i].serial_str );
-        check_device_joystick_id( device, i, FALSE );
+        check_device_joystick_id( device, i, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
@@ -6805,8 +6806,8 @@ static void test_joystick_id( DWORD version )
         ok( hr == DI_OK, "Unexpected hr %#lx.\n", hr );
 
         check_device_hid_serial( device, descs[i].serial_str );
-        if (i < 2) check_device_joystick_id( device, !i ? 1 : 0, FALSE );
-        else check_device_joystick_id( device, i, FALSE );
+        if (i < 2) check_device_joystick_id( device, !i ? 1 : 0, TRUE );
+        else check_device_joystick_id( device, i, TRUE );
         IDirectInputDevice8_Release( device );
         winetest_pop_context();
     }
@@ -6835,8 +6836,8 @@ static void test_joystick_id( DWORD version )
         /*
          * Devices 16 and above all get a fixed joystick ID of 17.
          */
-        if (i >= 16) check_device_joystick_id( device, 17, FALSE );
-        else check_device_joystick_id( device, i, FALSE );
+        if (i >= 16) check_device_joystick_id( device, 17, TRUE );
+        else check_device_joystick_id( device, i, TRUE );
 
         IDirectInputDevice8_Release( device );
         winetest_pop_context();

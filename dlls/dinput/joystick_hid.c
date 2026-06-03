@@ -96,13 +96,10 @@ static CRITICAL_SECTION joystick_cache_cs = { &joystick_cache_cs_debug, -1, 0, 0
 
 static struct list joystick_cache = LIST_INIT( joystick_cache );
 
-#define MAX_JOY_ID  16
-
 struct cache_entry
 {
     struct list             entry;
     DIDEVICEINSTANCEW       instance;
-    DWORD                   joy_id;
     WCHAR                   path[MAX_PATH];
 };
 
@@ -112,14 +109,12 @@ static const char *debugstr_device_instance( const DIDEVICEINSTANCEW *instance )
                              HIWORD(instance->guidProduct.Data1), debugstr_guid( &instance->guidInstance ) );
 }
 
-static HRESULT cache_entry_create( const DIDEVICEINSTANCEW *instance, DWORD joy_id,
-                                   const WCHAR *path, struct cache_entry **out )
+static HRESULT cache_entry_create( const DIDEVICEINSTANCEW *instance, const WCHAR *path, struct cache_entry **out )
 {
     struct cache_entry *entry;
 
     if (!(entry = calloc( 1, sizeof(*entry) ))) return E_OUTOFMEMORY;
     entry->instance = *instance;
-    entry->joy_id = joy_id;
     wcscpy( entry->path, path );
     CharLowerW( entry->path );
 
@@ -127,7 +122,7 @@ static HRESULT cache_entry_create( const DIDEVICEINSTANCEW *instance, DWORD joy_
     return S_OK;
 }
 
-static HRESULT insert_cache_entry( DIDEVICEINSTANCEW *instance, DWORD joy_id, const WCHAR *path )
+static HRESULT insert_cache_entry( DIDEVICEINSTANCEW *instance, const WCHAR *path )
 {
     struct cache_entry *entry, *next;
     HRESULT hr;
@@ -140,8 +135,7 @@ static HRESULT insert_cache_entry( DIDEVICEINSTANCEW *instance, DWORD joy_id, co
         if (*path && !*next->path)
         {
             instance->guidInstance = next->instance.guidInstance;
-            TRACE( "Reusing instance %s, path %s, joy_id %#lx\n", debugstr_device_instance( instance ),
-                   debugstr_w( path ), next->joy_id );
+            TRACE( "Reusing instance %s, path %s\n", debugstr_device_instance( instance ), debugstr_w( path ) );
             next->instance = *instance;
             wcscpy( next->path, path );
             return S_OK;
@@ -149,9 +143,8 @@ static HRESULT insert_cache_entry( DIDEVICEINSTANCEW *instance, DWORD joy_id, co
     }
 #undef SWAP
 
-    if (FAILED(hr = cache_entry_create( instance, joy_id, path, &entry ))) return hr;
-    TRACE( "Created instance %s, path %s, joy_id %#lx\n", debugstr_device_instance( instance ),
-           debugstr_w( path ), joy_id );
+    if (FAILED(hr = cache_entry_create( instance, path, &entry ))) return hr;
+    TRACE( "Created instance %s, path %s\n", debugstr_device_instance( instance ), debugstr_w( path ) );
     list_add_before( &next->entry, &entry->entry );
 
     return S_OK;
@@ -174,12 +167,9 @@ static void save_registry_instances( HKEY root )
                   LOWORD(vidpid), HIWORD(vidpid), index );
         RegSetKeyValueW( root, buffer, L"GUID", REG_BINARY, (BYTE *)&entry->instance.guidInstance,
                          sizeof(entry->instance.guidInstance) );
-        if (entry->joy_id >= MAX_JOY_ID) RegDeleteKeyValueW( root, buffer, L"Joystick Id" );
-        else RegSetKeyValueW( root, buffer, L"Joystick Id", REG_BINARY, (BYTE *)&entry->joy_id,
-                              sizeof(entry->joy_id) );
 
-        TRACE( "Saved %04x:%04x index %lu, guid %s, joy_id %#lx\n", LOWORD(vidpid), HIWORD(vidpid), index,
-               debugstr_guid( &entry->instance.guidInstance ), entry->joy_id );
+        TRACE( "Saved %04x:%04x index %lu, guid %s\n", LOWORD(vidpid), HIWORD(vidpid), index,
+               debugstr_guid( &entry->instance.guidInstance ) );
     }
 }
 
@@ -190,16 +180,14 @@ static void load_registry_product_instances( HKEY root, DWORD vidpid )
     for (DWORD i = 0; !RegEnumKeyW( root, i, name, ARRAY_SIZE(name) ); i++)
     {
         DIDEVICEINSTANCEW instance = {.guidProduct = dinput_pidvid_guid };
-        DWORD len = sizeof(GUID), joy_id, len_id = sizeof(joy_id);
+        DWORD len = sizeof(GUID);
 
         instance.guidProduct.Data1 = vidpid;
         if (RegGetValueW( root, name, L"GUID", RRF_RT_REG_BINARY, NULL, &instance.guidInstance, &len )) continue;
-        if (RegGetValueW( root, name, L"Joystick Id", RRF_RT_REG_BINARY, NULL, &joy_id, &len_id )) joy_id = MAX_JOY_ID + 1;
+        insert_cache_entry( &instance, L"" );
 
-        TRACE( "Loaded %04x:%04x index %s, guid %s, joy_id %#lx\n", LOWORD(vidpid), HIWORD(vidpid), debugstr_w( name ),
-               debugstr_guid( &instance.guidInstance ), joy_id );
-
-        insert_cache_entry( &instance, joy_id, L"" );
+        TRACE( "Loaded %04x:%04x index %s, guid %s\n", LOWORD(vidpid), HIWORD(vidpid), debugstr_w( name ),
+               debugstr_guid( &instance.guidInstance ) );
     }
 }
 
@@ -223,33 +211,7 @@ static void load_registry_instances( HKEY root )
     }
 }
 
-static void assign_joystick_ids(void)
-{
-    DWORD ids = ((1 << MAX_JOY_ID) - 1) | (1 << (MAX_JOY_ID + 1));
-    struct cache_entry *entry;
-
-    LIST_FOR_EACH_ENTRY( entry, &joystick_cache, struct cache_entry, entry )
-    {
-        if (!*entry->path || entry->joy_id >= MAX_JOY_ID) continue;
-        if (!(ids & (1 << entry->joy_id))) entry->joy_id = MAX_JOY_ID + 1;
-        else ids &= ~(1 << entry->joy_id);
-
-        TRACE( "Reusing joy_id %#lx for instance %s, path %s\n", entry->joy_id,
-               debugstr_device_instance( &entry->instance ), debugstr_w( entry->path ) );
-    }
-
-    LIST_FOR_EACH_ENTRY( entry, &joystick_cache, struct cache_entry, entry )
-    {
-        if (!*entry->path || entry->joy_id < MAX_JOY_ID) continue;
-        BitScanForward( &entry->joy_id, ids );
-        if (entry->joy_id < MAX_JOY_ID) ids &= ~(1 << entry->joy_id);
-
-        TRACE( "Assigned joy_id %#lx to instance %s, path %s\n", entry->joy_id,
-               debugstr_device_instance( &entry->instance ), debugstr_w( entry->path ) );
-    }
-}
-
-static HRESULT get_instance_from_guid( const GUID *guid, DIDEVICEINSTANCEW *instance, DWORD *joy_id, WCHAR *path )
+static HRESULT get_instance_from_guid( const GUID *guid, DIDEVICEINSTANCEW *instance, WCHAR *path )
 {
     struct cache_entry *entry;
     HRESULT hr = DI_OK;
@@ -272,7 +234,6 @@ static HRESULT get_instance_from_guid( const GUID *guid, DIDEVICEINSTANCEW *inst
     else
     {
         *instance = entry->instance;
-        *joy_id = entry->joy_id;
         wcscpy( path, entry->path );
     }
 
@@ -421,7 +382,6 @@ struct hid_joystick
     WCHAR device_path[MAX_PATH];
     HIDD_ATTRIBUTES attrs;
     HIDP_CAPS caps;
-    DWORD joy_id;
 
     char *input_report_buf;
     char *output_report_buf;
@@ -1047,7 +1007,7 @@ static HRESULT hid_joystick_get_property( IDirectInputDevice8W *iface, DWORD pro
     case (DWORD_PTR)DIPROP_JOYSTICKID:
     {
         DIPROPDWORD *value = (DIPROPDWORD *)header;
-        value->dwData = impl->joy_id;
+        value->dwData = impl->base.instance.guidInstance.Data3;
         return DI_OK;
     }
     case (DWORD_PTR)DIPROP_GUIDANDPATH:
@@ -1891,13 +1851,12 @@ HRESULT hid_joystick_refresh_devices(void)
         HIDP_CAPS caps;
 
         if (FAILED(hid_joystick_device_try_open( path, &device, &preparsed, &attrs, &caps, &instance, 0x0800 ))) continue;
-        hr = insert_cache_entry( &instance, MAX_JOY_ID + 1, path );
+        hr = insert_cache_entry( &instance, path );
         HidD_FreePreparsedData( preparsed );
         CloseHandle( device );
     }
     free( paths );
 
-    assign_joystick_ids();
     save_registry_instances( root );
     ReleaseMutex( mutex );
     CloseHandle( mutex );
@@ -2285,19 +2244,18 @@ HRESULT hid_joystick_create_device( struct dinput *dinput, const GUID *guid, IDi
     struct hid_joystick *impl = NULL;
     WCHAR device_path[MAX_PATH];
     USAGE_AND_PAGE *usages;
-    DWORD size, joy_id = 0;
     char *buffer;
     HRESULT hr;
+    DWORD size;
 
     TRACE( "dinput %p, guid %s, out %p\n", dinput, debugstr_guid( guid ), out );
 
     *out = NULL;
 
-    if (FAILED(hr = get_instance_from_guid( guid, &instance, &joy_id, device_path ))) return hr;
+    if (FAILED(hr = get_instance_from_guid( guid, &instance, device_path ))) return hr;
 
     if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
     dinput_device_init( &impl->base, &hid_joystick_vtbl, guid, dinput );
-    impl->joy_id = joy_id;
     impl->base.crit.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": hid_joystick.base.crit");
     impl->base.dwCoopLevel = DISCL_NONEXCLUSIVE | DISCL_BACKGROUND;
     impl->base.read_event = CreateEventW( NULL, TRUE, FALSE, NULL );
