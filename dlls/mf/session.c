@@ -231,6 +231,7 @@ enum presentation_flags
     SESSION_FLAG_NEEDS_PREROLL = 0x8,
     SESSION_FLAG_END_OF_PRESENTATION = 0x10,
     SESSION_FLAG_PENDING_RATE_CHANGE = 0x20,
+    SESSION_FLAG_PENDING_COMMAND = 0x40,
 };
 
 struct media_session
@@ -485,7 +486,7 @@ static HRESULT session_submit_command(struct media_session *session, struct sess
     EnterCriticalSection(&session->cs);
     if (SUCCEEDED(hr = session_is_shut_down(session)))
     {
-        if (list_empty(&session->commands) && session->command_state == COMMAND_STATE_COMPLETE)
+        if (list_empty(&session->commands) && !(session->presentation.flags & SESSION_FLAG_PENDING_COMMAND))
         {
             hr = MFPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, &session->commands_callback, &op->IUnknown_iface);
             op->submitted = SUCCEEDED(hr);
@@ -979,6 +980,7 @@ static void session_command_complete(struct media_session *session)
     HRESULT hr;
 
     session->command_state = COMMAND_STATE_COMPLETE;
+    session->presentation.flags &= ~SESSION_FLAG_PENDING_COMMAND;
 
     /* Submit next command. */
     if ((e = list_head(&session->commands)))
@@ -2813,13 +2815,14 @@ static HRESULT WINAPI session_commands_callback_Invoke(IMFAsyncCallback *iface, 
 
     EnterCriticalSection(&session->cs);
 
-    if (session->command_state != COMMAND_STATE_COMPLETE)
+    if (session->presentation.flags & SESSION_FLAG_PENDING_COMMAND)
     {
         WARN("session %p command is in progress, waiting for it to complete.\n", session);
         LeaveCriticalSection(&session->cs);
         return S_OK;
     }
     list_remove(&op->entry);
+    session->presentation.flags |= SESSION_FLAG_PENDING_COMMAND;
 
     switch (op->command)
     {
@@ -4171,8 +4174,7 @@ static void session_raise_end_of_presentation(struct media_session *session)
     {
         if (session_nodes_is_mask_set(session, MF_TOPOLOGY_MAX, SOURCE_FLAG_END_OF_PRESENTATION))
         {
-            session->command_state = COMMAND_STATE_STOPPING_SINKS;
-            session->presentation.flags |= SESSION_FLAG_END_OF_PRESENTATION;
+            session->presentation.flags |= SESSION_FLAG_END_OF_PRESENTATION | SESSION_FLAG_PENDING_COMMAND;
             IMFMediaEventQueue_QueueEventParamVar(session->event_queue, MEEndOfPresentation, &GUID_NULL, S_OK, NULL);
         }
     }
